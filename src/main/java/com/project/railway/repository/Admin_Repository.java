@@ -9,4 +9,7 @@ public interface Admin_Repository extends JpaRepository<Admin, Integer> {
 
 	@Query("SELECT COUNT(a) FROM Admin a")
 	int countByUsernameAndPassword(String username, String password);
+
+	Admin findByName(String name);
+	
 }

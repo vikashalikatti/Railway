@@ -9,4 +9,6 @@ public interface Admin_Service {
 
 	ResponseEntity<ResponseStructure<Admin>> create(Admin admin);
 
+	ResponseEntity<ResponseStructure<Admin>> login(String email, String password);
+
 }
