@@ -1,5 +1,7 @@
 package com.project.railway.controller;
 
+import java.io.IOException;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -12,6 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
 import com.project.railway.dto.Admin;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.service.Admin_Service;
+
+import freemarker.core.ParseException;
+import freemarker.template.MalformedTemplateNameException;
+import freemarker.template.TemplateNotFoundException;
 
 @RestController
 @RequestMapping("admin")
@@ -26,9 +32,7 @@ public class Admin_Controller {
 	}
 
 	@PostMapping("/login")
-	public ResponseEntity<ResponseStructure<Admin>> login(@RequestParam String name, @RequestParam String password) {
-		// TODO: process POST request
-
+	public ResponseEntity<ResponseStructure<Admin>> login(@RequestParam String name, @RequestParam String password) throws TemplateNotFoundException, MalformedTemplateNameException, ParseException, IOException {
 		return admin_Service.login(name, password);
 	}
 

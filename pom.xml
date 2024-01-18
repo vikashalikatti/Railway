@@ -97,6 +97,12 @@
 			<artifactId>freemarker</artifactId>
 			<version>2.3.31</version>
 		</dependency>
+		<dependency>
+			<groupId>com.maxmind.geoip2</groupId>
+			<artifactId>geoip2</artifactId>
+			<version>2.16.0</version> <!-- Check for the latest version on Maven
+			Central -->
+		</dependency>
 	</dependencies>
 
 	<build>
