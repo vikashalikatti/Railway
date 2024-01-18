@@ -19,7 +19,7 @@ public class Booking {
 	private Long trainId;
 	private List<Long> seatIds;
 	private String passengerName;
-	private String contactNumber;
+	private Long contactNumber;
 	@ManyToOne
 	private Train train; // Many-to-One relationship with TrainDTO
 	@ManyToMany

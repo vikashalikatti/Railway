@@ -25,5 +25,4 @@ public class Train {
 	private List<Route> routes;
 	@OneToOne
 	private Schedule schedule;
-
 }
