@@ -1,5 +1,7 @@
 package com.project.railway.dto;
 
+import java.time.LocalDateTime;
+
 import org.springframework.stereotype.Component;
 
 import jakarta.persistence.Column;
@@ -24,4 +26,7 @@ public class Customer {
 	private byte[] photo;
 	private String gender;
 	private long mobile;
+	private long otp;
+	private LocalDateTime setOtpGeneratedTime;
+		
 }

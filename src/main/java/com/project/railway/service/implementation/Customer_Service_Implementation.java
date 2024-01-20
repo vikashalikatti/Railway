@@ -2,6 +2,8 @@ package com.project.railway.service.implementation;
 
 import java.io.IOException;
 import java.sql.Date;
+import java.time.LocalDateTime;
+import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -15,11 +17,16 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.project.railway.configuration.Twilio_Configuration;
 import com.project.railway.dto.Customer;
+import com.project.railway.helper.EmailService;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.service.Customer_Service;
+import com.twilio.Twilio;
+import com.twilio.rest.api.v2010.account.Message;
+import com.twilio.type.PhoneNumber;
 
 import freemarker.template.MalformedTemplateNameException;
 import freemarker.template.TemplateException;
@@ -31,6 +38,12 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	private Customer_Repository customer_Repository;
+	
+	@Autowired
+	private Twilio_Configuration configuration;
+
+	@Autowired
+	private EmailService mail;
 
 	@Autowired
 	private BCryptPasswordEncoder encoder;
@@ -57,14 +70,50 @@ public class Customer_Service_Implementation implements Customer_Service {
 			structure.setMessage("Email or Mobile Should not be repeated");
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		}
-		customer_Repository.save(customer);
-		structure.setData2(customer);
-		structure.setStatus(HttpStatus.OK.value());
-		structure.setMessage("OTP Send Successfully");
-		return new ResponseEntity<>(structure, HttpStatus.OK);
-		// verify otp in singup
+		int otp = new Random().nextInt(100000, 999999);
+	    customer.setOtp(otp);
+	     customer.setSetOtpGeneratedTime(LocalDateTime.now());
+	     String mobile = String.valueOf(customer.getMobile());
+	     System.out.println(mobile+"------------------------------------------->");
 
-	}
+	     try {
+	    	    Twilio.init(configuration.getAccount_sid(), configuration.getAuthToken());
+	    	    Message message = Message.creator(
+	    	            new PhoneNumber(mobile),
+	    	            new PhoneNumber(configuration.getPhoneNumber()),
+	    	            "Your OTP is: " + otp)
+	    	            .create();
+
+	    	    // Check if SMS was sent successfully
+	    	    if (message.getStatus() == Message.Status.SENT) {
+	    	        // Save customer details with OTP in the repository
+	    	        customer_Repository.save(customer);
+
+	    	        structure.setData2(customer);
+	    	        structure.setStatus(HttpStatus.CREATED.value());
+	    	        structure.setMessage("OTP sent successfully via SMS");
+
+	    	        return new ResponseEntity<>(structure, HttpStatus.OK);
+	    	    } else {
+	    	        structure.setData(null);
+	    	        structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+	    	        structure.setMessage("Failed to send OTP via SMS. Twilio status: " + message.getStatus());
+	    	        return new ResponseEntity<>(structure, HttpStatus.INTERNAL_SERVER_ERROR);
+	    	    }
+	    	} catch (Exception e) {
+	    	    // Log or print the exception for debugging
+	    	    e.printStackTrace();
+
+	    	    structure.setData(null);
+	    	    structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+	    	    structure.setMessage("Error sending OTP via SMS. Exception: " + e.getMessage());
+	    	    return new ResponseEntity<>(structure, HttpStatus.INTERNAL_SERVER_ERROR);
+	    	}
+
+    }
+
+	
+
 
 	@Override
 	public ResponseEntity<ResponseStructure<Customer>> login(String email, String password)
@@ -85,6 +134,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 		if (customer != null) {
 			long expirationMills = System.currentTimeMillis() + 3600000;
 			Date expirationDate = new Date(expirationMills);
+//			mail.sendOtp(customer);
 			String token = jwtUtil.generateToken_for_admin(details, expirationDate);
 			structure.setData(token);
 			structure.setMessage("Login Success");
