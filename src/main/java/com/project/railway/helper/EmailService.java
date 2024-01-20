@@ -43,12 +43,7 @@ public class EmailService {
 	@Autowired
 	private Configuration configuration;
 
-	private final FreeMarkerConfigurer freeMarkerConfigurer;
-
-	public EmailService(FreeMarkerConfigurer freeMarkerConfigurer) {
-		this.freeMarkerConfigurer = freeMarkerConfigurer;
-	}
-
+	
 	private String getGeolocationDetails(String location) {
 		String apiKey = "YOUR_API_KEY";
 

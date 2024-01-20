@@ -12,7 +12,7 @@ import lombok.Data;
 @Component
 public class Twilio_Configuration {
 
-	private String account_sid;
+	private String accountSid;
 	private String authToken;
-	private String PhoneNumber;
+	private String trailNumber;
 }
