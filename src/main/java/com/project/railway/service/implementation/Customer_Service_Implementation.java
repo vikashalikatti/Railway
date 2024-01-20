@@ -59,7 +59,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 		}
 		customer_Repository.save(customer);
 		structure.setData2(customer);
-		structure.setStatus(HttpStatus.CREATED.value());
+		structure.setStatus(HttpStatus.OK.value());
 		structure.setMessage("OTP Send Successfully");
 		return new ResponseEntity<>(structure, HttpStatus.OK);
 		// verify otp in singup
