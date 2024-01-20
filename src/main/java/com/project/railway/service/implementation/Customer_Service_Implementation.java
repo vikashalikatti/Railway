@@ -2,9 +2,6 @@ package com.project.railway.service.implementation;
 
 import java.io.IOException;
 import java.sql.Date;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -21,7 +18,6 @@ import org.springframework.web.multipart.MultipartFile;
 import com.project.railway.dto.Customer;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
-import com.project.railway.helper.SendMail;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.service.Customer_Service;
 
@@ -35,9 +31,6 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	private Customer_Repository customer_Repository;
-
-	@Autowired
-	private SendMail mail;
 
 	@Autowired
 	private BCryptPasswordEncoder encoder;
@@ -59,7 +52,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 		customer.setPhoto(picture);
 
 		if (customer_Repository.findByEmail(customer.getEmail()) != null
-				|| customer_Repository.findByMobile(customer.getMobile()) != null) {
+				|| customer_Repository.findByMobile(customer.getPhone_number()) != null) {
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			structure.setMessage("Email or Mobile Should not be repeated");
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
@@ -69,25 +62,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 		structure.setStatus(HttpStatus.CREATED.value());
 		structure.setMessage("OTP Send Successfully");
 		return new ResponseEntity<>(structure, HttpStatus.OK);
-
-//	  ---------------OTP SENT BY SMS -----------------  
-//		int otp = new Random().nextInt(100000, 999999);
-//		customer.setOtp(otp);
-//		customer.setOtpGeneratedTime(LocalDateTime.now());
-//
-//		if (mail.sendOtp(customer)) {
-//			
-//			Customer customer2 = customer_Repository.save(customer);
-//			structure.setData2(customer);
-//			structure.setStatus(HttpStatus.CREATED.value());
-//			structure.setMessage("OTP Send Successfully");
-//			return new ResponseEntity<>(structure, HttpStatus.OK);
-//		} else {
-//			structure.setData(null);
-//			structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-//			structure.setMessage("Something went wrong, Check email and try again");
-//			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-//		}
+		// verify otp in singup
 
 	}
 
@@ -110,7 +85,6 @@ public class Customer_Service_Implementation implements Customer_Service {
 		if (customer != null) {
 			long expirationMills = System.currentTimeMillis() + 3600000;
 			Date expirationDate = new Date(expirationMills);
-			mail.sendOtp(customer);
 			String token = jwtUtil.generateToken_for_admin(details, expirationDate);
 			structure.setData(token);
 			structure.setMessage("Login Success");
