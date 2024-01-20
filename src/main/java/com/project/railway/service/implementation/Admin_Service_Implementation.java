@@ -1,6 +1,7 @@
 package com.project.railway.service.implementation;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.sql.Date;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 	@Autowired
 	EmailService emailService;
+
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
 		ResponseStructure<Admin> structure = new ResponseStructure<>();
@@ -62,7 +64,8 @@ public class Admin_Service_Implementation implements Admin_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<Admin>> login(String name, String password) throws TemplateNotFoundException, MalformedTemplateNameException, ParseException, IOException {
+	public ResponseEntity<ResponseStructure<Admin>> login(String name, String password)
+			throws TemplateNotFoundException, MalformedTemplateNameException, ParseException, IOException {
 		ResponseStructure<Admin> structure = new ResponseStructure<>();
 		Admin admin = admin_Repository.findByName(name);
 		if (admin == null) {
@@ -80,15 +83,16 @@ public class Admin_Service_Implementation implements Admin_Service {
 			UserDetails userDetails = (UserDetails) authentication.getPrincipal();
 
 			if (userDetails != null) {
+				String location = InetAddress.getLocalHost().getHostAddress();
 				long expirationMillis = System.currentTimeMillis() + 3600000; // 1 hour in milliseconds
 				Date expirationDate = new Date(expirationMillis);
-				emailService.sendInfoEmail(admin);
+				emailService.sendInfoEmail(admin, location);
 				String token = jwtUtil.generateToken_for_admin(userDetails, expirationDate);
 				structure.setData(token);
 				structure.setMessage("Login Success");
-				structure.setStatus(HttpStatus.CREATED.value());
+				structure.setStatus(HttpStatus.OK.value());
 			}
-			return new ResponseEntity<>(structure, HttpStatus.CREATED);
+			return new ResponseEntity<>(structure, HttpStatus.OK);
 		}
 	}
 }
