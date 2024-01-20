@@ -86,7 +86,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 				String location = InetAddress.getLocalHost().getHostAddress();
 				long expirationMillis = System.currentTimeMillis() + 3600000; // 1 hour in milliseconds
 				Date expirationDate = new Date(expirationMillis);
-				emailService.sendInfoEmail(admin, location);
+//				emailService.sendInfoEmail(admin, location);
 				String token = jwtUtil.generateToken_for_admin(userDetails, expirationDate);
 				structure.setData(token);
 				structure.setMessage("Login Success");
