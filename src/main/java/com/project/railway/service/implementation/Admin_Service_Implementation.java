@@ -90,9 +90,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 				String token = jwtUtil.generateToken_for_admin(userDetails, expirationDate);
 				structure.setData(token);
 				structure.setMessage("Login Success");
-				structure.setStatus(HttpStatus.CREATED.value());
+				structure.setStatus(HttpStatus.OK.value());
 			}
-			return new ResponseEntity<>(structure, HttpStatus.CREATED);
+			return new ResponseEntity<>(structure, HttpStatus.OK);
 		}
 	}
 }
