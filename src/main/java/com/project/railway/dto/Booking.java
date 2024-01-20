@@ -5,9 +5,11 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.SequenceGenerator;
 import lombok.Data;
 
 @Entity
@@ -15,6 +17,8 @@ import lombok.Data;
 @Component
 public class Booking {
 	@Id
+	@GeneratedValue(generator = "pnr")
+	@SequenceGenerator(initialValue = 456789211, allocationSize = 1, sequenceName = "pnr", name = "pnr")
 	private Long bookingId;
 	private Long trainId;
 	private List<Long> seatIds;
