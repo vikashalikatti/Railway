@@ -52,12 +52,12 @@ public class Customer_Service_Implementation implements Customer_Service {
 		customer.setPhoto(picture);
 
 		if (customer_Repository.findByEmail(customer.getEmail()) != null
-				|| customer_Repository.findByMobile(customer.getPhone_number()) != null) {
+				|| customer_Repository.findByMobile(customer.getMobile()) != null) {
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			structure.setMessage("Email or Mobile Should not be repeated");
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		}
-		Customer customer2 = customer_Repository.save(customer);
+		customer_Repository.save(customer);
 		structure.setData2(customer);
 		structure.setStatus(HttpStatus.CREATED.value());
 		structure.setMessage("OTP Send Successfully");

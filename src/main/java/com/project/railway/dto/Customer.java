@@ -23,5 +23,5 @@ public class Customer {
 	@Column(columnDefinition = "MEDIUMBLOB")
 	private byte[] photo;
 	private String gender;
-	private long phone_number;
+	private long mobile;
 }
