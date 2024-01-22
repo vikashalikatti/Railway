@@ -18,7 +18,7 @@ public class Schedule {
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long scheduleId;
-	private Long trainId;
+	private int trainNumber;
 	private LocalDateTime departureTime;
 	private LocalDateTime arrivalTime;
 	@ManyToOne
