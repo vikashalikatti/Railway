@@ -16,9 +16,11 @@ import lombok.Data;
 @Data
 @Component
 public class Train {
-	@Id
+
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
-	private int trainId;
+	private int id;
+	@Id
+	private int trinNumber;
 	private String trainName;
 	private String sourceStation;
 	private String destinationStation;

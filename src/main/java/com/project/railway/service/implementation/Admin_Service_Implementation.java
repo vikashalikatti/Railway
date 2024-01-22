@@ -16,6 +16,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.Train;
 import com.project.railway.helper.EmailService;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
@@ -44,12 +45,15 @@ public class Admin_Service_Implementation implements Admin_Service {
 	@Autowired
 	EmailService emailService;
 
+	
+
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
 		ResponseStructure<Admin> structure = new ResponseStructure<>();
 		int existingEntries = admin_Repository.countByUsernameAndPassword(admin.getName(), admin.getPassword());
 		if (existingEntries == 0) {
 			admin.setPassword(encoder.encode(admin.getPassword()));
+			admin.setRole("admin");
 			admin_Repository.save(admin);
 			structure.setData2(admin);
 			structure.setMessage("Account Create for Admin");
@@ -95,4 +99,23 @@ public class Admin_Service_Implementation implements Admin_Service {
 			return new ResponseEntity<>(structure, HttpStatus.OK);
 		}
 	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Train>> trainadd(Train train, String token) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setData(null);
+			structure.setMessage("Token Expired, Please Login Again");
+			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+		} else {
+			System.out.println(train + "--------------------------------------->");
+			structure.setData2(train);
+			structure.setMessage("trian");
+			structure.setStatus(HttpStatus.OK.value());
+			return new ResponseEntity<>(structure, HttpStatus.OK);
+		}
+
+	}
+
 }

@@ -1,16 +1,16 @@
 package com.project.railway.helper;
 
-import java.sql.Date;
+import java.util.Date;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
 
 @Component
 public class JwtUtil {
@@ -20,7 +20,8 @@ public class JwtUtil {
 
 	private static final long EXPIRATION_TIME_MS = 3600000;
 
-	private static final String SECRET_KEY = new SecretKeyGenerator().key();
+	// Use Keys class to generate a secure key for HS512
+	private static final byte[] SECRET_KEY = Keys.secretKeyFor(SignatureAlgorithm.HS512).getEncoded();
 
 	private Claims parseJwtClaims(String authToken) {
 		if (authToken == null) {
@@ -35,21 +36,17 @@ public class JwtUtil {
 	}
 
 	public String generateToken_for_admin(UserDetails userDetails, Date expirationDate) {
-		String token = Jwts.builder().setSubject(userDetails.getUsername()).setExpiration(expirationDate) // date
-				.signWith(SignatureAlgorithm.HS256, SECRET_KEY).compact();
+		String token = Jwts.builder().setSubject(userDetails.getUsername()).setExpiration(expirationDate)
+				.signWith(SignatureAlgorithm.HS512, SECRET_KEY).compact();
 		return token;
 	}
 
 	public boolean isValidToken(String authToken) {
-		if (authToken == null) {
-			return false;
-		}
 		try {
 			Claims claims = Jwts.parser().setSigningKey(SECRET_KEY).parseClaimsJws(authToken).getBody();
-			Date expirationDate = (Date) claims.getExpiration();
-			return expirationDate != null && !expirationDate.before(new Date(System.currentTimeMillis()));
-		} catch (ExpiredJwtException expiredEx) {
-			return false;
+			Date expirationDate = claims.getExpiration();
+			Date currentDate = new Date();
+			return !expirationDate.before(currentDate);
 		} catch (JwtException | IllegalArgumentException e) {
 			return false;
 		}
