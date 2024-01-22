@@ -45,7 +45,7 @@ public class EmailService {
 
 	
 	private String getGeolocationDetails(String location) {
-		String apiKey = "d71eaf79c5674ff990e78d3a7ae9888e";
+		String apiKey = "YOUR_API_KEY";
 
 		JOpenCageGeocoder jOpenCageGeocoder = new JOpenCageGeocoder(apiKey);
 
