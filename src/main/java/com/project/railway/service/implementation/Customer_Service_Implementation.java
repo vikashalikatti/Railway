@@ -28,7 +28,7 @@ import freemarker.template.TemplateNotFoundException;
 import jakarta.mail.internet.ParseException;
 
 @Service
-public class Customer_Service_Implementation implements Customer_Service {
+public abstract class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	private Customer_Repository customer_Repository;
