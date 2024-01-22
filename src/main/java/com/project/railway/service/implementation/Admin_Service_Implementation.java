@@ -16,11 +16,14 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.EmailService;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.repository.Admin_Repository;
+import com.project.railway.repository.Schedule_Repository;
+import com.project.railway.repository.Train_Repository;
 import com.project.railway.service.Admin_Service;
 
 import freemarker.core.ParseException;
@@ -45,7 +48,11 @@ public class Admin_Service_Implementation implements Admin_Service {
 	@Autowired
 	EmailService emailService;
 
-	
+	@Autowired
+	Train_Repository train_Repository;
+
+	@Autowired
+	Schedule_Repository schedule_Repository;
 
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
@@ -109,13 +116,41 @@ public class Admin_Service_Implementation implements Admin_Service {
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
-			System.out.println(train + "--------------------------------------->");
+			train_Repository.save(train);
 			structure.setData2(train);
 			structure.setMessage("trian");
 			structure.setStatus(HttpStatus.OK.value());
 			return new ResponseEntity<>(structure, HttpStatus.OK);
 		}
 
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Train>> addSchedule(Schedule schedule, String token, int train_No) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+		Train train = train_Repository.findByTrainNumber(train_No);
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setData(null);
+			structure.setMessage("Token Expired, Please Login Again");
+			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+		} else {
+			if (train != null) {
+				schedule.setTrainNumber(train.getTrainNumber());
+				Schedule savedSchedule = schedule_Repository.save(schedule);
+				train.setSchedule(savedSchedule);
+				train_Repository.save(train);
+				structure.setData2(train);
+				structure.setMessage("trian");
+				structure.setStatus(HttpStatus.OK.value());
+				return new ResponseEntity<>(structure, HttpStatus.OK);
+			} else {
+				structure.setData2(null);
+				structure.setMessage("Schedule is not updated");
+				structure.setStatus(HttpStatus.BAD_REQUEST.value());
+				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+			}
+		}
 	}
 
 }

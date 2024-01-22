@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.Train;
 
 public interface Admin_Repository extends JpaRepository<Admin, Integer> {
 
@@ -11,5 +12,5 @@ public interface Admin_Repository extends JpaRepository<Admin, Integer> {
 	int countByUsernameAndPassword(String username, String password);
 
 	Admin findByName(String name);
-	
+
 }
