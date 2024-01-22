@@ -24,11 +24,11 @@ public class Sms_Service {
 			customer.setOtp(otp);
 			customer.setSetOtpGeneratedTime(LocalDateTime.now());
 			String mobile = "+" + String.valueOf(customer.getMobile());
-
+			String sms = "Your Otp##"+otp+",Please use this otp to verify the account";
 			Twilio.init(configuration.getAccountSid(), configuration.getAuthToken());
 
 			Message message = Message.creator(new PhoneNumber(mobile), new PhoneNumber(configuration.getTrailNumber()),
-					"Your OTP is: " + otp).create();
+					sms).create();
 		System.out.println(message.getStatus());
 			return true;
 		} else {
