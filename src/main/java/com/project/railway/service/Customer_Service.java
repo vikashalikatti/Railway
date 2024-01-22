@@ -17,8 +17,12 @@ import jakarta.mail.internet.ParseException;
 
 public interface Customer_Service  {
 
-	ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws IOException, ParseException, TemplateException;
+	ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws IOException, ParseException, TemplateException, Exception;
 
 	ResponseEntity<ResponseStructure<Customer>> login(String email, String password) throws TemplateNotFoundException, MalformedTemplateNameException, ParseException, IOException, TemplateException;
+
+	ResponseEntity<ResponseStructure<Customer>> verifyotp(String email, int otp);
+
+	ResponseEntity<ResponseStructure<Customer>> resendOtp(String email) throws Throwable;
 
 }

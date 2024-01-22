@@ -21,6 +21,7 @@ import com.project.railway.configuration.Twilio_Configuration;
 import com.project.railway.dto.Customer;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
+import com.project.railway.helper.Sms_Service;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.service.Customer_Service;
 import com.twilio.Twilio;
@@ -49,9 +50,11 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	JwtUtil jwtUtil;
+	
+	@Autowired
+	Sms_Service sms_Service;
 
-	public ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic)
-			throws IOException, ParseException, TemplateException {
+	public ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws Exception {
 
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
 
@@ -67,43 +70,21 @@ public class Customer_Service_Implementation implements Customer_Service {
 			structure.setMessage("Email or Mobile should not be repeated");
 			return ResponseEntity.badRequest().body(structure);
 		} else {
-			int otp = new Random().nextInt(100000, 999999);
-			customer.setOtp(otp);
-			customer.setSetOtpGeneratedTime(LocalDateTime.now());
-			String mobile = "+" + String.valueOf(customer.getMobile());
+			boolean sms = sms_Service.smsSent(customer);
+			if (sms) {
+				customer_Repository.save(customer);
 
-			try {
-				Twilio.init(configuration.getAccountSid(), configuration.getAuthToken());
+				structure.setData2(customer);
+				structure.setStatus(HttpStatus.CREATED.value());
+				structure.setMessage("OTP sent successfully via SMS");
 
-				Message message = Message
-						.creator(new PhoneNumber(mobile), new PhoneNumber(configuration.getTrailNumber()), 
-								"Your OTP is: " + otp)
-						.create();
-
-				// Check if SMS was sent successfully
-				if (message.getStatus() == Message.Status.SENT) {
-					// Save customer details with OTP in the repository
-					customer_Repository.save(customer);
-
-					structure.setData2(customer);
-					structure.setStatus(HttpStatus.CREATED.value());
-					structure.setMessage("OTP sent successfully via SMS");
-
-					return ResponseEntity.ok(structure);
-				} else {
-					structure.setData(null);
-					structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-					structure.setMessage("Failed to send OTP via SMS. Twilio status: " + message.getStatus());
-					return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(structure);
-				}
-			} catch (Exception e) {
-				// Log or print the exception for debugging
-				e.printStackTrace();
-
+				return ResponseEntity.ok(structure);
+			} else {
 				structure.setData(null);
 				structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-				structure.setMessage("Error sending OTP via SMS. Exception: " + e.getMessage());
+				structure.setMessage("Failed to send OTP via SMS. Twilio status: ");
 				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(structure);
+
 			}
 		}
 	}
@@ -127,7 +108,6 @@ public class Customer_Service_Implementation implements Customer_Service {
 		if (customer != null) {
 			long expirationMills = System.currentTimeMillis() + 3600000;
 			Date expirationDate = new Date(expirationMills);
-//			mail.sendOtp(customer);
 			String token = jwtUtil.generateToken_for_admin(details, expirationDate);
 			structure.setData(token);
 			structure.setMessage("Login Success");
@@ -143,4 +123,62 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	}
 
-}
+	@Override
+	public ResponseEntity<ResponseStructure<Customer>> verifyotp(String email, int otp) {
+		ResponseStructure<Customer> structure = new ResponseStructure<>();
+		Customer customer = customer_Repository.findByEmail(email);
+		if (customer != null && customer.getOtp() == otp) {
+			if (sms_Service.isOtpValid(customer)) {
+				customer.setStatus(true);
+				customer.setOtp(0);
+				customer.setSetOtpGeneratedTime(null);
+				customer_Repository.save(customer);
+				structure.setData2(customer);
+				structure.setStatus(HttpStatus.OK.value());
+				structure.setMessage("OTP Verified Successfully");
+				return new ResponseEntity<>(structure, HttpStatus.OK);
+			} else {
+				structure.setData(null);
+				structure.setStatus(HttpStatus.BAD_REQUEST.value());
+				structure.setMessage("OTP has expired.");
+				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+			}
+		} else {
+			structure.setData(null);
+			structure.setMessage("Otp Not Verified Sucessfully");
+			structure.setStatus(HttpStatus.BAD_REQUEST.value());
+			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		}
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Customer>> resendOtp(String email) throws Throwable {
+		ResponseStructure<Customer> structure = new ResponseStructure<>();
+		Customer Customer = customer_Repository.findByEmail(email);
+
+		if (Customer != null) {
+			int otp = new Random().nextInt(100000, 999999);
+			Customer.setOtp(otp);
+			Customer.setSetOtpGeneratedTime(LocalDateTime.now()); // Store OTP generation time
+
+			if (sms_Service.smsSent(Customer)) {
+				Customer Customer2 = customer_Repository.save(Customer);
+				structure.setMessage("Successfully resend OTP");
+				structure.setData2(Customer);
+				structure.setStatus(HttpStatus.OK.value());
+			} else {
+				structure.setData(null);
+				structure.setMessage("Something went Wrong, Check email and try again");
+				structure.setStatus(HttpStatus.NOT_ACCEPTABLE.value());
+			}
+		} else {
+			structure.setData(null);
+			structure.setMessage("Customer not found");
+			structure.setStatus(HttpStatus.NOT_FOUND.value());
+		}
+
+		return new ResponseEntity<>(structure, HttpStatus.OK);
+	}
+	}
+
+

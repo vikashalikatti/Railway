@@ -28,5 +28,6 @@ public class Customer {
 	private long mobile;
 	private long otp;
 	private LocalDateTime setOtpGeneratedTime;
+	private boolean status;
 		
 }

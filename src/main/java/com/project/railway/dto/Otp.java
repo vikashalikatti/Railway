@@ -9,7 +9,9 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
+
 public class Otp {
+	
 	private OtpStatus status;
 	private String meaage;
 }
