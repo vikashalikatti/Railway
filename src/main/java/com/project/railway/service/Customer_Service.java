@@ -22,6 +22,10 @@ public interface Customer_Service {
 
 	ResponseEntity<ResponseStructure<Customer>> verifyotp(String email, int otp);
 
-	ResponseEntity<ResponseStructure<Customer>> forgot_passowrd(String email);
+	ResponseEntity<ResponseStructure<Customer>> forgot_passowrd(String email) throws Exception;
+
+	ResponseEntity<ResponseStructure<Customer>> submitForgotOtp(String email, int otp);
+
+	ResponseEntity<ResponseStructure<Customer>> setPassword(String email, String password);
 
 }
