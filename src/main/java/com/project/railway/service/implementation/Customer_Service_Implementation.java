@@ -63,6 +63,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 		} else {
 			boolean sms = sms_Service.smsSent(customer);
 			if (sms) {
+				customer.setRole("customer");
 				customer_Repository.save(customer);
 
 				structure.setData2(customer);

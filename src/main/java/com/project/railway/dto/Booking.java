@@ -20,7 +20,7 @@ public class Booking {
 	@GeneratedValue(generator = "pnr")
 	@SequenceGenerator(initialValue = 456789211, allocationSize = 1, sequenceName = "pnr", name = "pnr")
 	private Long bookingId;
-	private Long trainId;
+	private Long trinNumber;
 	private List<Long> seatIds;
 	private String passengerName;
 	private Long contactNumber;
