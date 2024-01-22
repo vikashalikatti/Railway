@@ -28,7 +28,7 @@ import freemarker.template.TemplateNotFoundException;
 import jakarta.mail.internet.ParseException;
 
 @Service
-public class Customer_Service_Implementation implements Customer_Service {
+public  class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	private Customer_Repository customer_Repository;
@@ -141,6 +141,12 @@ public class Customer_Service_Implementation implements Customer_Service {
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		}
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Customer>> forgot_passowrd(String email) {
+		// TODO Auto-generated method stub
+		return null;
 	}
 
 }

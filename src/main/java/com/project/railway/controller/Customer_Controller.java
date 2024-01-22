@@ -47,5 +47,10 @@ public class Customer_Controller {
 	public ResponseEntity<ResponseStructure<Customer>> verifyotp(@RequestParam String email, @RequestParam int otp) {
 		return customer_Service.verifyotp(email, otp);
 	}
+	
+	@PostMapping("/forgot_passowrd")
+	public ResponseEntity<ResponseStructure<Customer>>forgot_password(@RequestParam String email){
+		return customer_Service.forgot_passowrd(email);
+	}
 
 }
