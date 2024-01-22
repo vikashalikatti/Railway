@@ -2,6 +2,9 @@ package com.project.railway.service.implementation;
 
 import java.io.IOException;
 import java.sql.Date;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -144,9 +147,75 @@ public  class Customer_Service_Implementation implements Customer_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<Customer>> forgot_passowrd(String email) {
-		// TODO Auto-generated method stub
-		return null;
-	}
+	public ResponseEntity<ResponseStructure<Customer>> forgot_passowrd(String email) throws Exception {
+		ResponseStructure<Customer> structure=new ResponseStructure<>();
+		Customer customer=customer_Repository.findByEmail(email);
+		if(customer==null) {
+			structure.setData2(customer);
+			structure.setMessage(customer.getEmail()+"Email doesn't exits,create account first");
+			structure.setStatus(HttpStatus.BAD_REQUEST.value());
+			return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
+		} else {
+			int otp=new Random().nextInt(100000,999999);
+			customer.setOtp(otp);
+			customer.setSetOtpGeneratedTime(LocalDateTime.now());
+			
+			if(sms_Service.smsSent(customer)) {
+				Customer customer2=customer_Repository.save(customer);
+				structure.setData2(customer);
+				structure.setStatus(HttpStatus.OK.value());
+				structure.setMessage(customer.getEmail()+"OTP send succesfull,check once");
+				return new ResponseEntity<>(structure,HttpStatus.OK);
+			}else {
+				structure.setData(null);
+				structure.setStatus(HttpStatus.NOT_ACCEPTABLE.value());
+				structure.setMessage("Something went Wrong, Check email and try again");
+				return new ResponseEntity<>(structure, HttpStatus.NOT_ACCEPTABLE);
+			}
+		}
 
 }
+
+	@Override
+	public ResponseEntity<ResponseStructure<Customer>> submitForgotOtp(String email, int otp) {
+		ResponseStructure<Customer> structure = new ResponseStructure<>();
+		Customer customer = customer_Repository.findByEmail(email);
+
+		if (customer != null && customer.getOtp() == otp) {
+			LocalDateTime otpGeneratedTime = customer.getSetOtpGeneratedTime();
+			LocalDateTime currentTime = LocalDateTime.now();
+			Duration duration = Duration.between(otpGeneratedTime, currentTime);
+
+			if (duration.toMinutes() <= 5) {
+				customer.setStatus(true);
+				customer.setOtp(0);
+				customer_Repository.save(customer);
+				structure.setData2(customer);
+				structure.setMessage("Account Verified Successfully");
+				structure.setStatus(HttpStatus.ACCEPTED.value());
+			} else {
+				structure.setData(null);
+				structure.setMessage("OTP has expired.");
+				structure.setStatus(HttpStatus.NOT_ACCEPTABLE.value());
+			}
+		} else {
+			structure.setData(null);
+			structure.setMessage("Incorrect OTP");
+			structure.setStatus(HttpStatus.NOT_ACCEPTABLE.value());
+		}
+
+		return new ResponseEntity<>(structure, HttpStatus.OK);
+}
+	@Override
+	public ResponseEntity<ResponseStructure<Customer>> setPassword(String email, String password) {
+		ResponseStructure<Customer> structure = new ResponseStructure<>();
+		Customer customer = customer_Repository.findByEmail(email);
+		customer.setPassword(password);
+		customer_Repository.save(customer);
+		structure.setData2(customer);
+		structure.setMessage("Password Reset Success");
+		structure.setStatus(HttpStatus.CREATED.value());
+		return new ResponseEntity<>(structure, HttpStatus.CREATED);
+	}
+}
+

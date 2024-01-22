@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -49,8 +50,19 @@ public class Customer_Controller {
 	}
 	
 	@PostMapping("/forgot_passowrd")
-	public ResponseEntity<ResponseStructure<Customer>>forgot_password(@RequestParam String email){
+	public ResponseEntity<ResponseStructure<Customer>>forgot_password(@RequestParam String email) throws Exception{
 		return customer_Service.forgot_passowrd(email);
+	}
+	
+	@PostMapping("/forgot-otp/{email}")
+	public ResponseEntity<ResponseStructure<Customer>> submitForgotOtp(@PathVariable String email,@RequestParam int otp) {
+		return customer_Service.submitForgotOtp(email, otp);
+	}
+	
+	@PostMapping("/reset-password")
+	public ResponseEntity<ResponseStructure<Customer>> setpassword(@RequestParam String email,
+			@RequestParam String password) {
+		return customer_Service.setPassword(email, password);
 	}
 
 }
