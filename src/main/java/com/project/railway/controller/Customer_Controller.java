@@ -20,7 +20,6 @@ import com.project.railway.service.Customer_Service;
 
 import freemarker.template.MalformedTemplateNameException;
 import freemarker.template.TemplateException;
-import freemarker.template.TemplateNotFoundException;
 import jakarta.mail.internet.ParseException;
 
 @RestController
@@ -32,22 +31,21 @@ public class Customer_Controller {
 	Customer_Service customer_Service;
 
 	@PostMapping("/signup")
-	public ResponseEntity<ResponseStructure<Customer>>signup(@ModelAttribute Customer customer,@RequestPart MultipartFile pic ) throws Exception {
-		return customer_Service.signup(customer,pic);
+	public ResponseEntity<ResponseStructure<Customer>> signup(@ModelAttribute Customer customer,
+			@RequestPart MultipartFile pic) throws Exception {
+		return customer_Service.signup(customer, pic);
 	}
-	
+
 	@PostMapping("/login")
-	public ResponseEntity<ResponseStructure<Customer>>login(@RequestParam String email,@RequestParam String password) 
-			throws FileNotFoundException, MalformedTemplateNameException, ParseException, IOException, TemplateException{
-		return customer_Service.login(email,password);
+	public ResponseEntity<ResponseStructure<Customer>> login(@RequestParam String email, @RequestParam String password)
+			throws FileNotFoundException, MalformedTemplateNameException, ParseException, IOException,
+			TemplateException {
+		return customer_Service.login(email, password);
 	}
+
 	@PostMapping("/verify_otp")
 	public ResponseEntity<ResponseStructure<Customer>> verifyotp(@RequestParam String email, @RequestParam int otp) {
 		return customer_Service.verifyotp(email, otp);
 	}
-	
-	@PostMapping("/resendOtp")
-	public ResponseEntity<ResponseStructure<Customer>>resendOtp(@RequestParam String email) throws Throwable{
-		return customer_Service.resendOtp(email);
-	}
+
 }

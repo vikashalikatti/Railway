@@ -2,8 +2,6 @@ package com.project.railway.service.implementation;
 
 import java.io.IOException;
 import java.sql.Date;
-import java.time.LocalDateTime;
-import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -17,16 +15,12 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.project.railway.configuration.Twilio_Configuration;
 import com.project.railway.dto.Customer;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Sms_Service;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.service.Customer_Service;
-import com.twilio.Twilio;
-import com.twilio.rest.api.v2010.account.Message;
-import com.twilio.type.PhoneNumber;
 
 import freemarker.template.MalformedTemplateNameException;
 import freemarker.template.TemplateException;
@@ -40,9 +34,6 @@ public class Customer_Service_Implementation implements Customer_Service {
 	private Customer_Repository customer_Repository;
 
 	@Autowired
-	private Twilio_Configuration configuration;
-
-	@Autowired
 	private BCryptPasswordEncoder encoder;
 
 	@Autowired
@@ -50,7 +41,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	JwtUtil jwtUtil;
-	
+
 	@Autowired
 	Sms_Service sms_Service;
 
@@ -72,6 +63,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 		} else {
 			boolean sms = sms_Service.smsSent(customer);
 			if (sms) {
+				customer.setRole("customer");
 				customer_Repository.save(customer);
 
 				structure.setData2(customer);
@@ -151,34 +143,4 @@ public class Customer_Service_Implementation implements Customer_Service {
 		}
 	}
 
-	@Override
-	public ResponseEntity<ResponseStructure<Customer>> resendOtp(String email) throws Throwable {
-		ResponseStructure<Customer> structure = new ResponseStructure<>();
-		Customer Customer = customer_Repository.findByEmail(email);
-
-		if (Customer != null) {
-			int otp = new Random().nextInt(100000, 999999);
-			Customer.setOtp(otp);
-			Customer.setSetOtpGeneratedTime(LocalDateTime.now()); // Store OTP generation time
-
-			if (sms_Service.smsSent(Customer)) {
-				Customer Customer2 = customer_Repository.save(Customer);
-				structure.setMessage("Successfully resend OTP");
-				structure.setData2(Customer);
-				structure.setStatus(HttpStatus.OK.value());
-			} else {
-				structure.setData(null);
-				structure.setMessage("Something went Wrong, Check email and try again");
-				structure.setStatus(HttpStatus.NOT_ACCEPTABLE.value());
-			}
-		} else {
-			structure.setData(null);
-			structure.setMessage("Customer not found");
-			structure.setStatus(HttpStatus.NOT_FOUND.value());
-		}
-
-		return new ResponseEntity<>(structure, HttpStatus.OK);
-	}
-	}
-
-
+}

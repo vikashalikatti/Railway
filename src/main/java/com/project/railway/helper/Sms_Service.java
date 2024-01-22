@@ -15,7 +15,6 @@ import com.twilio.type.PhoneNumber;
 
 @Service
 public class Sms_Service {
-
 	@Autowired
 	private Twilio_Configuration configuration;
 
@@ -47,4 +46,5 @@ public class Sms_Service {
 			return false;
 		}
 	}
+
 }

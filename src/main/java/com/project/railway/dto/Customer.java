@@ -29,5 +29,5 @@ public class Customer {
 	private long otp;
 	private LocalDateTime setOtpGeneratedTime;
 	private boolean status;
-		
+	private String role;
 }
