@@ -1,11 +1,13 @@
 package com.project.railway.service;
 
 import java.io.IOException;
+import java.util.List;
 
 import org.springframework.http.ResponseEntity;
 
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.Schedule;
+import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
 
@@ -22,6 +24,8 @@ public interface Admin_Service {
 
 	ResponseEntity<ResponseStructure<Train>> trainadd(Train train, String token);
 
-	ResponseEntity<ResponseStructure<Train>> addSchedule(Schedule schedule, String token,int train_No);
+	ResponseEntity<ResponseStructure<Train>> addSchedule(Schedule schedule, String token, int train_No);
+
+	ResponseEntity<ResponseStructure<Train>> addStation(List<Station> station, String token, int train_No);
 
 }

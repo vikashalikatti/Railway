@@ -12,18 +12,20 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import lombok.Data;
 
-@Data
 @Entity
+@Data
 @Component
 public class Ticket {
+
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long ticketId;
 	private Long bookingId;
+
 	@OneToMany
 	private List<Seat> seats;
 	private double totalAmount;
-	@OneToOne
-	private Booking booking; // One-to-One relationship with BookingDTO
 
+	@OneToOne
+	private Booking booking;
 }
