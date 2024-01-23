@@ -1,6 +1,7 @@
 package com.project.railway.service.implementation;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.sql.Date;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -18,6 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.project.railway.dto.Admin;
 import com.project.railway.dto.Customer;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
@@ -26,12 +28,11 @@ import com.project.railway.repository.Customer_Repository;
 import com.project.railway.service.Customer_Service;
 
 import freemarker.template.MalformedTemplateNameException;
-import freemarker.template.TemplateException;
 import freemarker.template.TemplateNotFoundException;
 import jakarta.mail.internet.ParseException;
 
 @Service
-public  class Customer_Service_Implementation implements Customer_Service {
+public class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	private Customer_Repository customer_Repository;
@@ -86,36 +87,33 @@ public  class Customer_Service_Implementation implements Customer_Service {
 
 	@Override
 	public ResponseEntity<ResponseStructure<Customer>> login(String email, String password)
-			throws TemplateNotFoundException, MalformedTemplateNameException, ParseException, IOException,
-			TemplateException {
+			throws TemplateNotFoundException, MalformedTemplateNameException, ParseException, IOException {
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
 		Customer customer = customer_Repository.findByEmail(email);
-
-		UsernamePasswordAuthenticationToken passwordAuthenticationToken = new UsernamePasswordAuthenticationToken(email,
-				password);
-
-		Authentication authentication = authenticationManager.authenticate(passwordAuthenticationToken);
-
-		SecurityContextHolder.getContext().setAuthentication(authentication);
-
-		UserDetails details = (UserDetails) authentication.getPrincipal();
-
-		if (customer != null) {
-			long expirationMills = System.currentTimeMillis() + 3600000;
-			Date expirationDate = new Date(expirationMills);
-			String token = jwtUtil.generateToken_for_admin(details, expirationDate);
-			structure.setData(token);
-			structure.setMessage("Login Success");
-			structure.setStatus(HttpStatus.OK.value());
-			return new ResponseEntity<>(structure, HttpStatus.OK);
-		} else {
+		if (customer == null) {
 			structure.setData(null);
-			structure.setMessage("NO Data found,Create New Account To Login");
+			structure.setMessage("No User, Create Your Account");
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		} else {
 
+			UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(email, password);
+
+			Authentication authentication = authenticationManager.authenticate(authToken);
+			SecurityContextHolder.getContext().setAuthentication(authentication);
+
+			UserDetails userDetails = (UserDetails) authentication.getPrincipal();
+
+			if (userDetails != null) {
+				long expirationMillis = System.currentTimeMillis() + 3600000; // 1 hour in milliseconds
+				Date expirationDate = new Date(expirationMillis);
+				String token = jwtUtil.generateToken_for_admin(userDetails, expirationDate);
+				structure.setData(token);
+				structure.setMessage("Login Success");
+				structure.setStatus(HttpStatus.OK.value());
+			}
+			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		}
-
 	}
 
 	@Override
@@ -148,25 +146,25 @@ public  class Customer_Service_Implementation implements Customer_Service {
 
 	@Override
 	public ResponseEntity<ResponseStructure<Customer>> forgot_passowrd(String email) throws Exception {
-		ResponseStructure<Customer> structure=new ResponseStructure<>();
-		Customer customer=customer_Repository.findByEmail(email);
-		if(customer==null) {
+		ResponseStructure<Customer> structure = new ResponseStructure<>();
+		Customer customer = customer_Repository.findByEmail(email);
+		if (customer == null) {
 			structure.setData2(customer);
-			structure.setMessage(customer.getEmail()+"Email doesn't exits,create account first");
+			structure.setMessage(customer.getEmail() + "Email doesn't exits,create account first");
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
+			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		} else {
-			int otp=new Random().nextInt(100000,999999);
+			int otp = new Random().nextInt(100000, 999999);
 			customer.setOtp(otp);
 			customer.setSetOtpGeneratedTime(LocalDateTime.now());
-			
-			if(sms_Service.smsSent(customer)) {
-				Customer customer2=customer_Repository.save(customer);
+
+			if (sms_Service.smsSent(customer)) {
+				customer_Repository.save(customer);
 				structure.setData2(customer);
 				structure.setStatus(HttpStatus.OK.value());
-				structure.setMessage(customer.getEmail()+"OTP send succesfull,check once");
-				return new ResponseEntity<>(structure,HttpStatus.OK);
-			}else {
+				structure.setMessage(customer.getEmail() + "OTP send succesfull,check once");
+				return new ResponseEntity<>(structure, HttpStatus.OK);
+			} else {
 				structure.setData(null);
 				structure.setStatus(HttpStatus.NOT_ACCEPTABLE.value());
 				structure.setMessage("Something went Wrong, Check email and try again");
@@ -174,7 +172,7 @@ public  class Customer_Service_Implementation implements Customer_Service {
 			}
 		}
 
-}
+	}
 
 	@Override
 	public ResponseEntity<ResponseStructure<Customer>> submitForgotOtp(String email, int otp) {
@@ -189,33 +187,44 @@ public  class Customer_Service_Implementation implements Customer_Service {
 			if (duration.toMinutes() <= 5) {
 				customer.setStatus(true);
 				customer.setOtp(0);
+				long expirationMillis = System.currentTimeMillis() + 600000; // 10 min in milliseconds
+				Date expirationDate = new Date(expirationMillis);
+				String token = jwtUtil.generateToken_for_customer(customer, expirationDate);
 				customer_Repository.save(customer);
+				structure.setData(token);
 				structure.setData2(customer);
 				structure.setMessage("Account Verified Successfully");
 				structure.setStatus(HttpStatus.ACCEPTED.value());
 			} else {
 				structure.setData(null);
 				structure.setMessage("OTP has expired.");
-				structure.setStatus(HttpStatus.NOT_ACCEPTABLE.value());
+				structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			}
 		} else {
 			structure.setData(null);
 			structure.setMessage("Incorrect OTP");
-			structure.setStatus(HttpStatus.NOT_ACCEPTABLE.value());
+			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 		}
 
 		return new ResponseEntity<>(structure, HttpStatus.OK);
-}
+	}
+
 	@Override
-	public ResponseEntity<ResponseStructure<Customer>> setPassword(String email, String password) {
+	public ResponseEntity<ResponseStructure<Customer>> setPassword(String email, String password, String token) {
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
 		Customer customer = customer_Repository.findByEmail(email);
-		customer.setPassword(password);
-		customer_Repository.save(customer);
-		structure.setData2(customer);
-		structure.setMessage("Password Reset Success");
-		structure.setStatus(HttpStatus.CREATED.value());
-		return new ResponseEntity<>(structure, HttpStatus.CREATED);
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setData(null);
+			structure.setMessage("Some thing Went Wrong");
+			structure.setStatus(HttpStatus.BAD_REQUEST.value());
+			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		} else {
+			customer.setPassword(encoder.encode(password));
+			customer_Repository.save(customer);
+			structure.setData2(customer);
+			structure.setMessage("Password Reset Success");
+			structure.setStatus(HttpStatus.OK.value());
+			return new ResponseEntity<>(structure, HttpStatus.OK);
+		}
 	}
 }
-

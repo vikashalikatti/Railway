@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
+import com.project.railway.dto.Customer;
+
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -52,4 +54,9 @@ public class JwtUtil {
 		}
 	}
 
+	public String generateToken_for_customer(Customer customer,Date expirationDate) {
+		String token = Jwts.builder().setSubject(customer.getEmail()).setExpiration(expirationDate)
+				.signWith(SignatureAlgorithm.HS512, SECRET_KEY).compact();
+		return token;
+	}
 }
