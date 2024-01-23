@@ -9,18 +9,21 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.project.railway.dto.Admin;
 import com.project.railway.dto.Customer;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.service.Customer_Service;
 
 import freemarker.template.MalformedTemplateNameException;
 import freemarker.template.TemplateException;
+import freemarker.template.TemplateNotFoundException;
 import jakarta.mail.internet.ParseException;
 
 @RestController
@@ -36,12 +39,11 @@ public class Customer_Controller {
 			@RequestPart MultipartFile pic) throws Exception {
 		return customer_Service.signup(customer, pic);
 	}
-
+	
 	@PostMapping("/login")
-	public ResponseEntity<ResponseStructure<Customer>> login(@RequestParam String email, @RequestParam String password)
-			throws FileNotFoundException, MalformedTemplateNameException, ParseException, IOException,
-			TemplateException {
-		return customer_Service.login(email, password);
+	public ResponseEntity<ResponseStructure<Customer>> login(@RequestParam String name, @RequestParam String password)
+			throws TemplateNotFoundException, MalformedTemplateNameException, ParseException, IOException {
+		return customer_Service.login(name, password);
 	}
 
 	@PostMapping("/verify_otp")
@@ -61,8 +63,8 @@ public class Customer_Controller {
 	
 	@PostMapping("/reset-password")
 	public ResponseEntity<ResponseStructure<Customer>> setpassword(@RequestParam String email,
-			@RequestParam String password) {
-		return customer_Service.setPassword(email, password);
+			@RequestParam String password,@RequestHeader("Bearer") String token) {
+		return customer_Service.setPassword(email, password,token);
 	}
 
 }
