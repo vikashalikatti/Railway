@@ -6,4 +6,6 @@ import com.project.railway.dto.Station;
 
 public interface Station_Repository extends JpaRepository<Station, Long> {
 
+	Station findByStationName(String startStarion);
+
 }
