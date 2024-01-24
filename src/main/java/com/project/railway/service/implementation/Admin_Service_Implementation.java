@@ -20,12 +20,14 @@ import org.springframework.stereotype.Service;
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
+import com.project.railway.dto.Seat;
 import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.EmailService;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.repository.Admin_Repository;
+import com.project.railway.repository.Route_Repository;
 import com.project.railway.repository.Schedule_Repository;
 import com.project.railway.repository.Station_Repository;
 import com.project.railway.repository.Train_Repository;
@@ -61,6 +63,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 	@Autowired
 	Station_Repository station_Repository;
+	
+	@Autowired
+	Route_Repository  route_Repository;
 
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
@@ -211,64 +216,82 @@ public class Admin_Service_Implementation implements Admin_Service {
 	}
 
 
-@Override
-public ResponseEntity<ResponseStructure<Train>> addRoutesWithPrices(List<Route> route, String token, int trainNo) {
-    ResponseStructure<Train> structure = new ResponseStructure<>();
-    Train train = train_Repository.findByTrainNumber(trainNo);
+	@Override
+	public ResponseEntity<ResponseStructure<Train>> addRoutesWithPrices(List<Route> routes, String token, int trainNo) {
+	    ResponseStructure<Train> structure = new ResponseStructure<>();
+		Train train = train_Repository.findByTrainNumber(trainNo);
+//		Station station=station_Repository.findByStationName(station);
+	    
 
-    if (!jwtUtil.isValidToken(token)) {
-        structure.setMessage("Token Expired, Please Login Again");
-        structure.setStatus(HttpStatus.UNAUTHORIZED.value());
-        return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
-    } else {
-        // Create and save routes with prices
-        List<Route> routes = new ArrayList<>();
-        for (Route routeDTO : route) {
-            Station startStation = station_Repository.findByStationName(routeDTO.getStartStation());
-            Station endStation = station_Repository.findByStationName(routeDTO.getEndStation());
+	    if (!jwtUtil.isValidToken(token)) {
+	        structure.setMessage("Token Expired, Please Login Again");
+	        structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+	        return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+	    } else {
+	        if (routes.size() != 1) {
+	            structure.setMessage("Invalid number of routes provided");
+	            structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	            return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	        }
 
-            if (startStation == null || endStation == null) {
-                structure.setMessage("Invalid Station Names");
-                structure.setStatus(HttpStatus.BAD_REQUEST.value());
-                return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-            }
+	        // Assuming there is only one Route object in the input
+	        Route routeDTO = routes.get(0);
 
-            // Calculate price based on distance
-            double distance = routeDTO.getDistance();
-            double price = calculatePrice(distance);
+	        String startStationName = routeDTO.getStartStation();
+	        String endStationName = routeDTO.getEndStation();
 
-            Route route1 = new Route();
-            route1.setTrain(train);
-            route1.setStartStation(startStation.getStationName());
-            route1.setEndStation(endStation.getStationName());
-            route1.setDistance(distance);
-            route1.setPrice(price);
+	        if (startStationName == null || endStationName == null) {
+	            structure.setMessage("Invalid Station Names");
+	            structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	            return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	        }
 
-            routes.add(route1);
-        }
+	        // Calculate price based on distance
+	        double distance = routeDTO.getDistance();
+	        double price = calculatePrice(distance);
 
-        train.setRoutes(routes);
-        train_Repository.save(train);
+	        // Create and save the single route
+	        Route newRoute = new Route();
+	        newRoute.setTrain(train_Repository.findByTrainNumber(trainNo));
+	        newRoute.setStartStation(startStationName);
+	        newRoute.setEndStation(endStationName);
+	        newRoute.setDistance(distance);
+	        newRoute.setPrice(price);
 
-        Train trainDTO = new Train();
-        trainDTO.setTrainNumber(trainNo);
-        trainDTO.setTrainNumber(train.getTrainNumber());
-        trainDTO.setRoutes(train.getRoutes());
+	        route_Repository.save(newRoute);
 
-        structure.setData2(trainDTO);
-        structure.setMessage("Routes with Prices Added");
-        structure.setStatus(HttpStatus.OK.value());
-        return new ResponseEntity<>(structure, HttpStatus.OK);
-    }
+	        Train trainDTO = new Train();
+	        trainDTO.setTrainNumber(trainNo);
+	        trainDTO.setRoutes(routes);  // Assuming Train has a single Route
+
+	        structure.setData2(trainDTO);
+	        structure.setMessage("Route with Prices Added");
+	        structure.setStatus(HttpStatus.OK.value());
+	        return new ResponseEntity<>(structure, HttpStatus.OK);
+	    }
+	}
+
+	private double calculatePrice(double distance) {
+	    // Assuming a simple linear pricing model: price = distance * rate per kilometer
+	    double ratePerKilometer = 0.48; // Adjust this based on your pricing strategy
+	    return distance * ratePerKilometer;
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Train>> addSeats(Seat seat, List<Route> route, String token, int trainNo) {
+		return null;
+//		ResponseStructure<Train> structure=new ResponseStructure<>();
+//		Train train=train_Repository.findByTrainNumber(trainNo);
+//
+//		if(!jwtUtil.isValidToken(token)) {
+//			structure.setData(null);
+//			structure.setMessage("Invalid Token Please Login Again");
+//			structure.setStatus(HttpStatus.BAD_REQUEST.value());
+//			return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
+//			
+//		}
+		
+		
 }
-
-private double calculatePrice(double distance) {
-    // Assuming a simple linear pricing model: price = distance * rate per kilometer
-    double ratePerKilometer = 0.48; // Adjust this based on your pricing strategy
-    return distance * ratePerKilometer;
 }
-}
-
-
-
 	
