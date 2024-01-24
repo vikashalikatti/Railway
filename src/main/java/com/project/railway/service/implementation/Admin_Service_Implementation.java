@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
+import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.EmailService;
 import com.project.railway.helper.JwtUtil;
@@ -26,6 +27,7 @@ import com.project.railway.helper.ResponseStructure;
 import com.project.railway.repository.Admin_Repository;
 import com.project.railway.repository.Route_Repository;
 import com.project.railway.repository.Schedule_Repository;
+import com.project.railway.repository.Station_Repository;
 import com.project.railway.repository.Train_Repository;
 import com.project.railway.service.Admin_Service;
 
@@ -60,6 +62,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 	@Autowired
 	Route_Repository route_Repository;
 
+	@Autowired
+	Station_Repository station_Repository;
+
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
 		ResponseStructure<Admin> structure = new ResponseStructure<>();
@@ -73,7 +78,6 @@ public class Admin_Service_Implementation implements Admin_Service {
 			structure.setStatus(HttpStatus.CREATED.value());
 			return new ResponseEntity<>(structure, HttpStatus.CREATED);
 		} else {
-			structure.setData(null);
 			structure.setMessage("Admin Cannot More than one");
 			structure.setStatus(HttpStatus.ALREADY_REPORTED.value());
 			return new ResponseEntity<>(structure, HttpStatus.ALREADY_REPORTED);
@@ -86,7 +90,6 @@ public class Admin_Service_Implementation implements Admin_Service {
 		ResponseStructure<Admin> structure = new ResponseStructure<>();
 		Admin admin = admin_Repository.findByName(name);
 		if (admin == null) {
-			structure.setData(null);
 			structure.setMessage("No User, Create Your Account");
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
@@ -103,7 +106,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 				String location = InetAddress.getLocalHost().getHostAddress();
 				long expirationMillis = System.currentTimeMillis() + 3600000; // 1 hour in milliseconds
 				Date expirationDate = new Date(expirationMillis);
-				emailService.sendInfoEmail(admin, location);
+//				emailService.sendInfoEmail(admin, location);
 				String token = jwtUtil.generateToken_for_admin(userDetails, expirationDate);
 				structure.setData(token);
 				structure.setMessage("Login Success");
@@ -117,7 +120,6 @@ public class Admin_Service_Implementation implements Admin_Service {
 	public ResponseEntity<ResponseStructure<Train>> trainadd(Train train, String token) {
 		ResponseStructure<Train> structure = new ResponseStructure<>();
 		if (!jwtUtil.isValidToken(token)) {
-			structure.setData(null);
 			structure.setMessage("Token Expired, Please Login Again");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
@@ -136,13 +138,11 @@ public class Admin_Service_Implementation implements Admin_Service {
 		ResponseStructure<Train> structure = new ResponseStructure<>();
 		Train train = train_Repository.findByTrainNumber(train_No);
 		if (!jwtUtil.isValidToken(token)) {
-			structure.setData(null);
 			structure.setMessage("Token Expired, Please Login Again");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
 			if (train != null) {
-				schedule.setTrainNumber(train.getTrainNumber());
 				Schedule savedSchedule = schedule_Repository.save(schedule);
 				train.setSchedule(savedSchedule);
 				train_Repository.save(train);
@@ -158,6 +158,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 			}
 		}
 	}
+
 //	@Override
 //	public ResponseEntity<ResponseStructure<Route>> addRoute(Route route, String token, int train_No) {
 //	 ResponseStructure<Route> structure=new ResponseStructure<>();
@@ -184,4 +185,25 @@ public class Admin_Service_Implementation implements Admin_Service {
 //	 }
 //	 		
 //	}
+
+
+	@Override
+	public ResponseEntity<ResponseStructure<Train>> addStation(List<Station> station, String token, int train_No) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+		Train train = train_Repository.findByTrainNumber(train_No);
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setMessage("Token Expired, Please Login Again");
+			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+		} else {
+			station_Repository.saveAll(station);
+			train_Repository.save(train);
+			structure.setData2(train);
+			structure.setMessage("Stations Added");
+			structure.setStatus(HttpStatus.OK.value());
+			return new ResponseEntity<>(structure, HttpStatus.OK);
+		}
+	}
+
+
 }

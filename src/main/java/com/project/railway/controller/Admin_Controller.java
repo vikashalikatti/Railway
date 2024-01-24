@@ -1,11 +1,13 @@
 package com.project.railway.controller;
 
 import java.io.IOException;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
+import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.service.Admin_Service;
@@ -47,14 +50,24 @@ public class Admin_Controller {
 			@RequestHeader("Bearer") String token) {
 		return admin_Service.trainadd(train, token);
 	}
-	
+
 	@PostMapping("/schedule")
-	public ResponseEntity<ResponseStructure<Train>> addSchedule(@ModelAttribute Schedule schedule,@RequestHeader("Bearer") String token,@RequestParam int train_No) {
-		return admin_Service.addSchedule(schedule,token,train_No);
+	public ResponseEntity<ResponseStructure<Train>> addSchedule(@ModelAttribute Schedule schedule,
+			@RequestHeader("Bearer") String token, @RequestParam int train_No) {
+		return admin_Service.addSchedule(schedule, token, train_No);
 	}
+
+	@PostMapping("/addstations/{train_No}")
+	public ResponseEntity<ResponseStructure<Train>> addStation(@RequestBody List<Station> station,
+			@RequestHeader("Bearer") String token, @PathVariable int train_No) {
+		// TODO: process POST request
+
+		return admin_Service.addStation(station, token, train_No);
+	}
+}
 	
 //	@PostMapping("/route")
 //    public ResponseEntity<ResponseStructure<Route>>addRoute(@ModelAttribute Route route,@RequestHeader("Bearer") String token,@RequestParam int train_No){
 //		return admin_Service.addRoute(route,token,train_No);
 //	}
-}
+

@@ -15,14 +15,20 @@ import lombok.Data;
 @Component
 @Data
 public class Schedule {
+
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long scheduleId;
-	private int trainNumber;
-	private LocalDateTime departureTime;
+
 	private LocalDateTime arrivalTime;
+
+	private LocalDateTime departureTime;
+
 	@ManyToOne
-	private Station station; // Many-to-One relationship with StationDTO
+	private Station station;
+
 	@ManyToOne
-	private Train train; // Many-to-One relationship with TrainDTO
+	private Train train;
+
+	// Other existing variables
 }
