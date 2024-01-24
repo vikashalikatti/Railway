@@ -6,7 +6,6 @@ import java.util.List;
 import org.springframework.http.ResponseEntity;
 
 import com.project.railway.dto.Admin;
-import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
@@ -25,10 +24,7 @@ public interface Admin_Service {
 
 	ResponseEntity<ResponseStructure<Train>> trainadd(Train train, String token);
 
-	ResponseEntity<ResponseStructure<Train>> addSchedule(Schedule schedule, String token, int train_No);
+	ResponseEntity<ResponseStructure<Schedule>> addSchedule(Schedule schedule, String token, int train_No);
 
-	ResponseEntity<ResponseStructure<Train>> addStation(List<Station> station, String token, int train_No);
-
-//	ResponseEntity<ResponseStructure<Route>> addRoute(Route route, String token, int train_No);
-
+	ResponseEntity<ResponseStructure<Train>> addStation(List<Station> stations, String token, int trainNo);
 }
