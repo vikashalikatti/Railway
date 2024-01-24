@@ -26,5 +26,4 @@ public class RailwayApplication {
 		SpringApplication.run(RailwayApplication.class, args);
 
 	}
-
 }

@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
+import com.project.railway.dto.Seat;
 import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
@@ -31,4 +32,6 @@ public interface Admin_Service {
 
 
 	ResponseEntity<ResponseStructure<Train>> addRoutesWithPrices(List<Route> route, String token, int trainNo);
+
+	ResponseEntity<ResponseStructure<Train>> addSeats(Seat seat, List<Route> route, String token, int trainNo);
 }
