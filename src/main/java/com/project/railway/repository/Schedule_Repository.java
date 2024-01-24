@@ -6,4 +6,6 @@ import com.project.railway.dto.Schedule;
 
 public interface Schedule_Repository extends JpaRepository<Schedule, Long> {
 
+	Schedule findByTrainTrainNumber(int trainNo);
+
 }
