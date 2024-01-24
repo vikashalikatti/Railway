@@ -18,6 +18,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
@@ -209,35 +210,65 @@ public class Admin_Service_Implementation implements Admin_Service {
 		}
 	}
 
+
+@Override
+public ResponseEntity<ResponseStructure<Train>> addRoutesWithPrices(List<Route> route, String token, int trainNo) {
+    ResponseStructure<Train> structure = new ResponseStructure<>();
+    Train train = train_Repository.findByTrainNumber(trainNo);
+
+    if (!jwtUtil.isValidToken(token)) {
+        structure.setMessage("Token Expired, Please Login Again");
+        structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+        return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+    } else {
+        // Create and save routes with prices
+        List<Route> routes = new ArrayList<>();
+        for (Route routeDTO : route) {
+            Station startStation = station_Repository.findByStationName(routeDTO.getStartStation());
+            Station endStation = station_Repository.findByStationName(routeDTO.getEndStation());
+
+            if (startStation == null || endStation == null) {
+                structure.setMessage("Invalid Station Names");
+                structure.setStatus(HttpStatus.BAD_REQUEST.value());
+                return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+            }
+
+            // Calculate price based on distance
+            double distance = routeDTO.getDistance();
+            double price = calculatePrice(distance);
+
+            Route route1 = new Route();
+            route1.setTrain(train);
+            route1.setStartStation(startStation.getStationName());
+            route1.setEndStation(endStation.getStationName());
+            route1.setDistance(distance);
+            route1.setPrice(price);
+
+            routes.add(route1);
+        }
+
+        train.setRoutes(routes);
+        train_Repository.save(train);
+
+        Train trainDTO = new Train();
+        trainDTO.setTrainNumber(trainNo);
+        trainDTO.setTrainNumber(train.getTrainNumber());
+        trainDTO.setRoutes(train.getRoutes());
+
+        structure.setData2(trainDTO);
+        structure.setMessage("Routes with Prices Added");
+        structure.setStatus(HttpStatus.OK.value());
+        return new ResponseEntity<>(structure, HttpStatus.OK);
+    }
 }
 
+private double calculatePrice(double distance) {
+    // Assuming a simple linear pricing model: price = distance * rate per kilometer
+    double ratePerKilometer = 0.48; // Adjust this based on your pricing strategy
+    return distance * ratePerKilometer;
+}
+}
 
-//	@Override
-//	public ResponseEntity<ResponseStructure<Route>> addRoute(Route route, String token, int train_No) {
-//	 ResponseStructure<Route> structure=new ResponseStructure<>();
-//	 Train train=train_Repository.findByTrainNumber(train_No);
-//	 if(!jwtUtil.isValidToken(token)) {
-//		 structure.setData(null);
-//		 structure.setMessage("Invalid Or Expired Token ,Login Again To Continue");
-//		 structure.setStatus(HttpStatus.BAD_REQUEST.value());
-//		 return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
-//	 }if(train!=null) {
-//		 route.setTrainNumber(train.getTrainNumber());
-//		 Route newroute=route_Repository.save(route);
-//		 train.setRoutes((List<Route>)route);
-//		 train_Repository.save(train);
-//		 structure.setData2(newroute);
-//		 structure.setMessage("newroute");
-//		 structure.setStatus(HttpStatus.CREATED.value());
-//		 return new ResponseEntity<>(structure,HttpStatus.CREATED);
-//	 }else {
-//		 structure.setData(null);
-//		 structure.setMessage("Routes Are Not Set OR Added");
-//		 structure.setStatus(HttpStatus.BAD_REQUEST.value());
-//		 return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
-//	 }
-//	 		
-//	}
 
 
 	

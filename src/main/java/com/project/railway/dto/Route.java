@@ -12,19 +12,22 @@ import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import lombok.Data;
 
-@Data
 @Entity
+@Data
 @Component
 public class Route {
-	@Id
-	@GeneratedValue(strategy = GenerationType.IDENTITY)
-	private Long routeId;
-	private int trainNumber;
-	private Double price;
-	
-	@ManyToMany
-	private List<Station> stations;
-	@ManyToOne
-	private Train train; // Many-to-One relationship with TrainDTO
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long routeId;
 
+    private double price;
+    private String startStation; // Corrected field name
+    private String endStation;   // Corrected field name
+    private double distance;
+
+    @ManyToMany
+    private List<Station> stations;
+
+    @ManyToOne
+    private Train train; // Many-to-One relationship with TrainDTO
 }
