@@ -26,6 +26,7 @@ import freemarker.template.TemplateException;
 import freemarker.template.TemplateNotFoundException;
 import jakarta.mail.internet.ParseException;
 
+
 @RestController
 @RequestMapping("customer")
 @CrossOrigin
@@ -66,5 +67,6 @@ public class Customer_Controller {
 			@RequestParam String password,@RequestHeader("Bearer") String token) {
 		return customer_Service.setPassword(email, password,token);
 	}
+		
 
 }

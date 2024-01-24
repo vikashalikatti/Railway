@@ -210,3 +210,34 @@ public class Admin_Service_Implementation implements Admin_Service {
 	}
 
 }
+
+
+//	@Override
+//	public ResponseEntity<ResponseStructure<Route>> addRoute(Route route, String token, int train_No) {
+//	 ResponseStructure<Route> structure=new ResponseStructure<>();
+//	 Train train=train_Repository.findByTrainNumber(train_No);
+//	 if(!jwtUtil.isValidToken(token)) {
+//		 structure.setData(null);
+//		 structure.setMessage("Invalid Or Expired Token ,Login Again To Continue");
+//		 structure.setStatus(HttpStatus.BAD_REQUEST.value());
+//		 return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
+//	 }if(train!=null) {
+//		 route.setTrainNumber(train.getTrainNumber());
+//		 Route newroute=route_Repository.save(route);
+//		 train.setRoutes((List<Route>)route);
+//		 train_Repository.save(train);
+//		 structure.setData2(newroute);
+//		 structure.setMessage("newroute");
+//		 structure.setStatus(HttpStatus.CREATED.value());
+//		 return new ResponseEntity<>(structure,HttpStatus.CREATED);
+//	 }else {
+//		 structure.setData(null);
+//		 structure.setMessage("Routes Are Not Set OR Added");
+//		 structure.setStatus(HttpStatus.BAD_REQUEST.value());
+//		 return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
+//	 }
+//	 		
+//	}
+
+
+	

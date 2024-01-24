@@ -63,3 +63,10 @@ public class Admin_Controller {
 	}
 
 }
+
+	
+//	@PostMapping("/route")
+//    public ResponseEntity<ResponseStructure<Route>>addRoute(@ModelAttribute Route route,@RequestHeader("Bearer") String token,@RequestParam int train_No){
+//		return admin_Service.addRoute(route,token,train_No);
+//	}
+
