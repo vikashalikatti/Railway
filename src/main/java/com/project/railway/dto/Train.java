@@ -4,6 +4,10 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.annotation.JsonIdentityInfo;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+import com.fasterxml.jackson.annotation.ObjectIdGenerators;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -15,7 +19,8 @@ import lombok.Data;
 @Entity
 @Data
 @Component
-public class Train {
+@JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "trainNumber")
+public class Train  {
 
 	@Id
 	private int trainNumber;
@@ -32,6 +37,6 @@ public class Train {
 	@OneToOne
 	private Schedule schedule;
 
-	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
 	private List<Station> stations;
 }

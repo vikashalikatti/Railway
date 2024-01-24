@@ -24,8 +24,7 @@ public interface Admin_Service {
 
 	ResponseEntity<ResponseStructure<Train>> trainadd(Train train, String token);
 
-	ResponseEntity<ResponseStructure<Train>> addSchedule(Schedule schedule, String token, int train_No);
+	ResponseEntity<ResponseStructure<Schedule>> addSchedule(Schedule schedule, String token, int train_No);
 
-	ResponseEntity<ResponseStructure<Train>> addStation(List<Station> station, String token, int train_No);
-
+	ResponseEntity<ResponseStructure<Train>> addStation(List<Station> stations, String token, int trainNo);
 }
