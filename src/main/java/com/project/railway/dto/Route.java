@@ -20,6 +20,8 @@ public class Route {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long routeId;
 	private int trainNumber;
+	private Double price;
+	
 	@ManyToMany
 	private List<Station> stations;
 	@ManyToOne

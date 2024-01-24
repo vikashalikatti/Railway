@@ -3,6 +3,7 @@ package com.project.railway.service.implementation;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.sql.Date;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -16,12 +17,14 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.EmailService;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.repository.Admin_Repository;
+import com.project.railway.repository.Route_Repository;
 import com.project.railway.repository.Schedule_Repository;
 import com.project.railway.repository.Train_Repository;
 import com.project.railway.service.Admin_Service;
@@ -53,6 +56,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 	@Autowired
 	Schedule_Repository schedule_Repository;
+	
+	@Autowired
+	Route_Repository route_Repository;
 
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
@@ -152,5 +158,30 @@ public class Admin_Service_Implementation implements Admin_Service {
 			}
 		}
 	}
-
+//	@Override
+//	public ResponseEntity<ResponseStructure<Route>> addRoute(Route route, String token, int train_No) {
+//	 ResponseStructure<Route> structure=new ResponseStructure<>();
+//	 Train train=train_Repository.findByTrainNumber(train_No);
+//	 if(!jwtUtil.isValidToken(token)) {
+//		 structure.setData(null);
+//		 structure.setMessage("Invalid Or Expired Token ,Login Again To Continue");
+//		 structure.setStatus(HttpStatus.BAD_REQUEST.value());
+//		 return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
+//	 }if(train!=null) {
+//		 route.setTrainNumber(train.getTrainNumber());
+//		 Route newroute=route_Repository.save(route);
+//		 train.setRoutes((List<Route>)route);
+//		 train_Repository.save(train);
+//		 structure.setData2(newroute);
+//		 structure.setMessage("newroute");
+//		 structure.setStatus(HttpStatus.CREATED.value());
+//		 return new ResponseEntity<>(structure,HttpStatus.CREATED);
+//	 }else {
+//		 structure.setData(null);
+//		 structure.setMessage("Routes Are Not Set OR Added");
+//		 structure.setStatus(HttpStatus.BAD_REQUEST.value());
+//		 return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
+//	 }
+//	 		
+//	}
 }

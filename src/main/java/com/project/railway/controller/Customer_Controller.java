@@ -23,6 +23,7 @@ import freemarker.template.MalformedTemplateNameException;
 import freemarker.template.TemplateException;
 import jakarta.mail.internet.ParseException;
 
+
 @RestController
 @RequestMapping("customer")
 @CrossOrigin
@@ -64,5 +65,6 @@ public class Customer_Controller {
 			@RequestParam String password) {
 		return customer_Service.setPassword(email, password);
 	}
+		
 
 }

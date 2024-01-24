@@ -8,4 +8,6 @@ public interface Train_Repository extends JpaRepository<Train, Integer> {
 	Train findByTrainName(String train_no);
 
 	Train findByTrainNumber(int train_No);
+	
+	
 }

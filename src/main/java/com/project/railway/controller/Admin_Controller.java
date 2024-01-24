@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
@@ -52,5 +53,8 @@ public class Admin_Controller {
 		return admin_Service.addSchedule(schedule,token,train_No);
 	}
 	
-
+//	@PostMapping("/route")
+//    public ResponseEntity<ResponseStructure<Route>>addRoute(@ModelAttribute Route route,@RequestHeader("Bearer") String token,@RequestParam int train_No){
+//		return admin_Service.addRoute(route,token,train_No);
+//	}
 }
