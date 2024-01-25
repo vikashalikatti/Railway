@@ -22,13 +22,17 @@ public class Seat {
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long seatId;
-	private String seatNumber;
-	private String coachType;
-	private boolean isAvailable;
+	private int seatNumbers;
+	private int sleeper_class;
+	private int ac3_tier;
+	private int ac2_tier;
+	private int ac1_tier;
+	private int second_class;
+	private boolean second_class_isAvailable;
 
 	@ManyToOne
-	private Train train; // Many-to-One relationship with Trai
+	private Train train;
 
-	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
 	private List<Booking> bookings;
 }
