@@ -240,7 +240,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 			for (Station station : stations) {
 				station.setRoute(routes);
 			}
-
+			routes.setStations(stations);
 			route_Repository.save(routes);
 			station_Repository.saveAll(stations);
 
