@@ -31,7 +31,7 @@ public interface Admin_Service {
 	ResponseEntity<ResponseStructure<Train>> addStation(List<Station> stations, String token, int trainNo);
 
 
-	ResponseEntity<ResponseStructure<Train>> addRoutesWithPrices(List<Route> route, String token, int trainNo);
+	ResponseEntity<ResponseStructure<Train>> addRoutesWithPrices(Route route, String token, int trainNo);
 
 	ResponseEntity<ResponseStructure<Train>> addSeats(Seat seat, List<Route> route, String token, int trainNo);
 }

@@ -30,11 +30,7 @@ public class Schedule {
 
 	private LocalDateTime departureTime;
 
-	@ManyToOne
-	private Station station;
-
 	@ManyToOne(fetch = FetchType.EAGER)
 	@JsonIgnoreProperties("schedules")
 	private Train train;
-
 }
