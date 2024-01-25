@@ -1,6 +1,11 @@
 package com.project.railway.helper;
 
 
+
 public enum Seat_type {
-	AC,SL,Normal
+	    SECOND_CLASS,
+	    SLEEPER_CLASS,
+	    AC3_TIER,
+	    AC2_TIER,
+	    AC1_TIER
 }
