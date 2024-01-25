@@ -29,7 +29,7 @@ public class Station {
 	private LocalDateTime departureTime;
 	private LocalDateTime arrivalTime;
 
-	@ManyToOne
+	@ManyToOne(cascade = CascadeType.PERSIST)
 	private Route route;
 
 	@ManyToOne(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
