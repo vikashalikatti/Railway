@@ -27,7 +27,7 @@ public class Booking {
 
 	private Long trainNumber;
 
-	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
 	private List<Seat> seats;
 
 	private String passengerName;

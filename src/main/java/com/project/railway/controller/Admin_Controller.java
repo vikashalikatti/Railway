@@ -70,15 +70,10 @@ public class Admin_Controller {
 		return admin_Service.addRoutesWithPrices(route, token, train_No);
 	}
 
-	@PostMapping("/addSeat")
-	public ResponseEntity<ResponseStructure<Train>> addSeats(@RequestBody Seat seat, @RequestBody List<Route> route,
-			@RequestHeader("Bearer") String token, @RequestParam int trainNo) {
-		return admin_Service.addSeats(seat, route, token, trainNo);
+	@PostMapping("/addSeat/{train_No}")
+	public ResponseEntity<ResponseStructure<Train>> addSeats(@RequestBody Seat seat,
+			@RequestHeader("Bearer") String token, @PathVariable int train_No) {
+		return admin_Service.addSeats(seat, token, train_No);
 	}
 
 }
-
-//	@PostMapping("/route")
-//    public ResponseEntity<ResponseStructure<Route>>addRoute(@ModelAttribute Route route,@RequestHeader("Bearer") String token,@RequestParam int train_No){
-//		return admin_Service.addRoute(route,token,train_No);
-//	}
