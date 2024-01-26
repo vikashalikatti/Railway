@@ -10,8 +10,8 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
 import lombok.Data;
 
 @Entity
@@ -30,7 +30,7 @@ public class Seat {
 	private boolean second_class_isAvailable;
 	private int total_seat;
 
-	@ManyToOne
+	@OneToOne(mappedBy = "seat")
 	private Train train;
 
 	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)

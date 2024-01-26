@@ -263,7 +263,8 @@ public class Admin_Service_Implementation implements Admin_Service {
 		return distance * ratePerKilometer;
 	}
 
-	public ResponseEntity<ResponseStructure<Train>> addSeats(Seat seat, String token, int trainNo) {
+	@Override
+	public ResponseEntity<ResponseStructure<Train>> addSeats(Seat newSeat, String token, int trainNo) {
 		ResponseStructure<Train> structure = new ResponseStructure<>();
 
 		Train train = train_Repository.findByTrainNumber(trainNo);
@@ -279,64 +280,89 @@ public class Admin_Service_Implementation implements Admin_Service {
 			return new ResponseEntity<>(structure, HttpStatus.FORBIDDEN);
 		}
 
-		int totalSeats = seat.getTotal_seat();
-		if (totalSeats <= 0) {
+		if (newSeat.isSecond_class_isAvailable()) {
+			int secondClassSeats = newSeat.getTotal_seat() / 2;
+			int sleeperClassSeats = newSeat.getTotal_seat() / 4;
+			int ac3TierSeats = newSeat.getTotal_seat() / 8;
+			int ac2TierSeats = newSeat.getTotal_seat() / 16;
+			int ac1TierSeats = newSeat.getTotal_seat() / 32;
+			newSeat.setSecond_class(secondClassSeats);
+			newSeat.setAc1_tier(ac1TierSeats);
+			newSeat.setAc2_tier(ac2TierSeats);
+			newSeat.setAc3_tier(ac3TierSeats);
+			newSeat.setSleeper_class(sleeperClassSeats);
+		} else {
+			int sleeperClassSeats = newSeat.getTotal_seat() / 2;
+			int ac3TierSeats = newSeat.getTotal_seat() / 4;
+			int ac2TierSeats = newSeat.getTotal_seat() / 8;
+			int ac1TierSeats = newSeat.getTotal_seat() / 16;
+			newSeat.setAc1_tier(ac1TierSeats);
+			newSeat.setAc2_tier(ac2TierSeats);
+			newSeat.setAc3_tier(ac3TierSeats);
+			newSeat.setSleeper_class(sleeperClassSeats);
+
+		}
+		newSeat.setTrain(train);
+		train.setSeat(newSeat);
+		seat_Repository.save(newSeat);
+		train_Repository.save(train);
+
+		structure.setData2(train);
+		structure.setMessage("Seats Added Successfully");
+		structure.setStatus(HttpStatus.OK.value());
+		return new ResponseEntity<>(structure, HttpStatus.OK);
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Train>> updateSeat(Seat seat, String token, int train_no) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+
+		Train train = train_Repository.findByTrainNumber(train_no);
+
+		Seat existingSeat = train.getSeat();
+
+		int existingTotalSeats = existingSeat.getTotal_seat();
+		int newTotalSeats = seat.getTotal_seat();
+		int updateTotalSeats = existingTotalSeats + newTotalSeats;
+		if (updateTotalSeats <= 0) {
 			structure.setMessage("Total seats must be a positive number");
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		}
 
 		if (seat.isSecond_class_isAvailable()) {
-			int secondClassSeats = totalSeats / 2;
-			int sleeperClassSeats = totalSeats / 4;
-			int ac3TierSeats = totalSeats / 8;
-			int ac2TierSeats = totalSeats / 16;
-			int ac1TierSeats = totalSeats / 32;
-			seat.setSecond_class(secondClassSeats);
-			seat.setAc1_tier(ac1TierSeats);
-			seat.setAc2_tier(ac2TierSeats);
-			seat.setAc3_tier(ac3TierSeats);
-			seat.setSleeper_class(sleeperClassSeats);
+			int secondClassSeats = updateTotalSeats / 2;
+			int sleeperClassSeats = updateTotalSeats / 4;
+			int ac3TierSeats = updateTotalSeats / 8;
+			int ac2TierSeats = updateTotalSeats / 16;
+			int ac1TierSeats = updateTotalSeats / 32;
+
+			existingSeat.setSecond_class(secondClassSeats);
+			existingSeat.setAc1_tier(ac1TierSeats);
+			existingSeat.setAc2_tier(ac2TierSeats);
+			existingSeat.setAc3_tier(ac3TierSeats);
+			existingSeat.setSleeper_class(sleeperClassSeats);
 		} else {
-			int sleeperClassSeats = totalSeats / 2;
-			int ac3TierSeats = totalSeats / 4;
-			int ac2TierSeats = totalSeats / 8;
-			int ac1TierSeats = totalSeats / 16;
-			seat.setAc1_tier(ac1TierSeats);
-			seat.setAc2_tier(ac2TierSeats);
-			seat.setAc3_tier(ac3TierSeats);
-			seat.setSleeper_class(sleeperClassSeats);
+			int sleeperClassSeats = updateTotalSeats / 2;
+			int ac3TierSeats = updateTotalSeats / 4;
+			int ac2TierSeats = updateTotalSeats / 8;
+			int ac1TierSeats = updateTotalSeats / 16;
+
+			existingSeat.setAc1_tier(ac1TierSeats);
+			existingSeat.setAc2_tier(ac2TierSeats);
+			existingSeat.setAc3_tier(ac3TierSeats);
+			existingSeat.setSleeper_class(sleeperClassSeats);
 		}
 
-		List<Seat> existingSeats = train.getSeats();
-		if (existingSeats == null) {
-			existingSeats = new ArrayList<>();
-		}
-
-		boolean seatUpdated = false;
-		for (Seat existingSeat : existingSeats) {
-			if (existingSeat.getSeatId().equals(seat.getSeatId())) {
-				existingSeat.setSecond_class(seat.getSecond_class());
-				seatUpdated = true;
-				break;
-			}
-		}
-
-		if (!seatUpdated) {
-			existingSeats.add(seat);
-		}
-		seat.setTrain(train);
-		train.setSeats(existingSeats);
-		try {
-			train_Repository.save(train);
-		} catch (Exception e) {
-			structure.setMessage("Error saving train information");
-			structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-			return new ResponseEntity<>(structure, HttpStatus.INTERNAL_SERVER_ERROR);
-		}
+		existingSeat.setTotal_seat(updateTotalSeats);
+		existingSeat.setTrain(train);
+		train.setSeat(existingSeat);
+		seat_Repository.save(existingSeat);
+		train_Repository.save(train);
 		structure.setData2(train);
-		structure.setMessage("Seat Added Successfully");
+		structure.setMessage("Seats Updated Successfully");
 		structure.setStatus(HttpStatus.OK.value());
 		return new ResponseEntity<>(structure, HttpStatus.OK);
 	}
+
 }
