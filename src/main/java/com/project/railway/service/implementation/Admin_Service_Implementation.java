@@ -72,8 +72,6 @@ public class Admin_Service_Implementation implements Admin_Service {
 	@Autowired
 	Seat_Repository seat_Repository;
 
-
-
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
 		ResponseStructure<Admin> structure = new ResponseStructure<>();
@@ -115,7 +113,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 				String location = InetAddress.getLocalHost().getHostAddress();
 				long expirationMillis = System.currentTimeMillis() + 3600000; // 1 hour in milliseconds
 				Date expirationDate = new Date(expirationMillis);
-				//				emailService.sendInfoEmail(admin, location);
+				// emailService.sendInfoEmail(admin, location);
 				String token = jwtUtil.generateToken_for_admin(userDetails, expirationDate);
 				structure.setData(token);
 				structure.setMessage("Login Success");
@@ -222,7 +220,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 	public ResponseEntity<ResponseStructure<Train>> addRoutesWithPrices(Route routes, String token, int trainNo) {
 		ResponseStructure<Train> structure = new ResponseStructure<>();
 		Train train = train_Repository.findByTrainNumber(trainNo);
-
+		float kms = 0;
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setMessage("Invalid or Expired Token, Please Login Again");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
@@ -237,17 +235,19 @@ public class Admin_Service_Implementation implements Admin_Service {
 				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 			}
 
-			double distance = routes.getDistance();
-			double price = calculatePrice(distance);
-
-			routes.setPrice(price);
 			routes.setTrain(train);
 			List<Station> stations = new ArrayList<>();
 			stations.addAll(train.getStations());
 			for (Station station : stations) {
 				station.setRoute(routes);
+				kms += station.getKm();
+
 			}
-			//			routes.setStations(stations);
+			// routes.setStations(stations);
+			routes.setTotal_distance(kms);
+			double distance = routes.getTotal_distance();
+			double price = calculatePrice(distance);
+			routes.setPrice(price);
 			route_Repository.save(routes);
 			station_Repository.saveAll(stations);
 
@@ -266,6 +266,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 		double ratePerKilometer = 0.48; // Adjust this based on your pricing strategy
 		return distance * ratePerKilometer;
 	}
+
 //--------------------------------------!!!!---- ADD SEATS !!!!---------------------------------------//
 	@Override
 	public ResponseEntity<ResponseStructure<Train>> addSeats(Seat seat, List<Route> routes, String token, int trainNo) {
@@ -349,14 +350,14 @@ public class Admin_Service_Implementation implements Admin_Service {
 	}
 
 	private void addSeatsToRoute(Train train, Route route, Seat_type seat, int numSeats, List<Seat> seats) {
-		for (Station station : route.getStations()) {
+		for (Station station : train.getStations()) {
 			Seat newSeat = new Seat();
 			newSeat.setSeatNumbers(numSeats);
-			newSeat.setSeatType(seat);; // Set the seat type using the Seat_type enum
+			newSeat.setSeatType(seat);
+			; // Set the seat type using the Seat_type enum
 			newSeat.setTrain(train);
 			seats.add(newSeat);
 		}
 	}
-
 
 }
