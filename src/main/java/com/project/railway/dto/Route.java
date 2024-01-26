@@ -20,7 +20,7 @@ public class Route {
 	private double price;
 	private String startStation; // Corrected field name
 	private String endStation; // Corrected field name
-	private double distance;
+	private double total_distance;
 
 //	@OneToMany(cascade = CascadeType.PERSIST)
 //	private List<Station> stations;

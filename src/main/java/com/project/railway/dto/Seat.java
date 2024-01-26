@@ -4,6 +4,8 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
+import com.project.railway.helper.Seat_type;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -29,6 +31,7 @@ public class Seat {
 	private int ac1_tier;
 	private int second_class;
 	private boolean second_class_isAvailable;
+	private Seat_type seatType;
 
 	@ManyToOne
 	private Train train;

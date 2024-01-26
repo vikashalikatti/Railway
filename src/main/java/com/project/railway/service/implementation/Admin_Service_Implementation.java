@@ -26,9 +26,11 @@ import com.project.railway.dto.Train;
 import com.project.railway.helper.EmailService;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
+import com.project.railway.helper.Seat_type;
 import com.project.railway.repository.Admin_Repository;
 import com.project.railway.repository.Route_Repository;
 import com.project.railway.repository.Schedule_Repository;
+import com.project.railway.repository.Seat_Repository;
 import com.project.railway.repository.Station_Repository;
 import com.project.railway.repository.Train_Repository;
 import com.project.railway.service.Admin_Service;
@@ -66,6 +68,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 	@Autowired
 	Route_Repository route_Repository;
+
+	@Autowired
+	Seat_Repository seat_Repository;
 
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
@@ -108,7 +113,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 				String location = InetAddress.getLocalHost().getHostAddress();
 				long expirationMillis = System.currentTimeMillis() + 3600000; // 1 hour in milliseconds
 				Date expirationDate = new Date(expirationMillis);
-//				emailService.sendInfoEmail(admin, location);
+				// emailService.sendInfoEmail(admin, location);
 				String token = jwtUtil.generateToken_for_admin(userDetails, expirationDate);
 				structure.setData(token);
 				structure.setMessage("Login Success");
@@ -215,7 +220,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 	public ResponseEntity<ResponseStructure<Train>> addRoutesWithPrices(Route routes, String token, int trainNo) {
 		ResponseStructure<Train> structure = new ResponseStructure<>();
 		Train train = train_Repository.findByTrainNumber(trainNo);
-
+		float kms = 0;
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setMessage("Invalid or Expired Token, Please Login Again");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
@@ -230,16 +235,19 @@ public class Admin_Service_Implementation implements Admin_Service {
 				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 			}
 
-			double distance = routes.getDistance();
-			double price = calculatePrice(distance);
-
-			routes.setPrice(price);
 			routes.setTrain(train);
 			List<Station> stations = new ArrayList<>();
 			stations.addAll(train.getStations());
 			for (Station station : stations) {
 				station.setRoute(routes);
+				kms += station.getKm();
+
 			}
+			// routes.setStations(stations);
+			routes.setTotal_distance(kms);
+			double distance = routes.getTotal_distance();
+			double price = calculatePrice(distance);
+			routes.setPrice(price);
 			route_Repository.save(routes);
 			station_Repository.saveAll(stations);
 
@@ -259,19 +267,97 @@ public class Admin_Service_Implementation implements Admin_Service {
 		return distance * ratePerKilometer;
 	}
 
+//--------------------------------------!!!!---- ADD SEATS !!!!---------------------------------------//
 	@Override
-	public ResponseEntity<ResponseStructure<Train>> addSeats(Seat seat, List<Route> route, String token, int trainNo) {
-		return null;
-//		ResponseStructure<Train> structure=new ResponseStructure<>();
-//		Train train=train_Repository.findByTrainNumber(trainNo);
-//
-//		if(!jwtUtil.isValidToken(token)) {
-//			structure.setData(null);
-//			structure.setMessage("Invalid Token Please Login Again");
-//			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-//			return new ResponseEntity<>(structure,HttpStatus.BAD_REQUEST);
-//			
-//		}
+	public ResponseEntity<ResponseStructure<Train>> addSeats(Seat seat, List<Route> routes, String token, int trainNo) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+		Train train = train_Repository.findByTrainNumber(trainNo);
 
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setMessage("Invalid Token Please Login Again");
+			structure.setStatus(HttpStatus.BAD_REQUEST.value());
+			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		}
+
+		// Check if the train exists
+		if (train == null) {
+			structure.setMessage("Train with number " + trainNo + " not found");
+			structure.setStatus(HttpStatus.NOT_FOUND.value());
+			return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+		}
+
+		// Iterate over routes to add seats
+		for (Route route : routes) {
+			if (train.getRoute().getRouteId().equals(route.getRouteId())) {
+				List<Seat> seats = new ArrayList<>();
+
+				// Calculate seat division
+				int totalSeats = calculateTotalSeats(seat);
+				calculateAndAddSeats(train, route, seat, seats, totalSeats);
+
+				// Save the seats
+				seat_Repository.saveAll(seats);
+				train.getSeats().addAll(seats);
+			}
+		}
+
+		// Update train with seats
+		train_Repository.save(train);
+
+		structure.setData2(train);
+		structure.setMessage("Seats added successfully");
+		structure.setStatus(HttpStatus.OK.value());
+		return new ResponseEntity<>(structure, HttpStatus.OK);
 	}
+
+	private int calculateTotalSeats(Seat seat) {
+		int totalSeats = seat.getSecond_class();
+		return totalSeats;
+	}
+
+	private void calculateAndAddSeats(Train train, Route route, Seat seat, List<Seat> seats, int totalSeats) {
+		boolean secondClassAvailable = seat.isSecond_class_isAvailable();
+
+		int availableSeats = totalSeats;
+
+		// Reserve half of the seats for second class if available
+		int secondClassSeats = 0;
+		if (secondClassAvailable) {
+			secondClassSeats = totalSeats / 2;
+			availableSeats -= secondClassSeats;
+		}
+
+		// Calculate seats for other classes based on available seats
+		int sleeperClassSeats = availableSeats / 4;
+		int ac3TierSeats = availableSeats / 8;
+		int ac2TierSeats = availableSeats / 16;
+		int ac1TierSeats = availableSeats / 32;
+
+		// Add second class seats
+		addSeatsToRoute(train, route, Seat_type.SECOND_CLASS, secondClassSeats, seats);
+
+		// Add sleeper class seats
+		addSeatsToRoute(train, route, Seat_type.SLEEPER_CLASS, sleeperClassSeats, seats);
+
+		// Add AC3 tier seats
+		addSeatsToRoute(train, route, Seat_type.AC3_TIER, ac3TierSeats, seats);
+
+		// Add AC2 tier seats
+		addSeatsToRoute(train, route, Seat_type.AC2_TIER, ac2TierSeats, seats);
+
+		// Add AC1 tier seats
+		addSeatsToRoute(train, route, Seat_type.AC1_TIER, ac1TierSeats, seats);
+	}
+
+	private void addSeatsToRoute(Train train, Route route, Seat_type seat, int numSeats, List<Seat> seats) {
+		for (Station station : train.getStations()) {
+			Seat newSeat = new Seat();
+			newSeat.setSeatNumbers(numSeats);
+			newSeat.setSeatType(seat);
+			; // Set the seat type using the Seat_type enum
+			newSeat.setTrain(train);
+			seats.add(newSeat);
+		}
+	}
+
 }

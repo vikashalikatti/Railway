@@ -28,6 +28,8 @@ public class Station {
 	private String stationName;
 	private LocalDateTime departureTime;
 	private LocalDateTime arrivalTime;
+	private double km;
+
 
 	@ManyToOne(cascade = CascadeType.PERSIST)
 	private Route route;
