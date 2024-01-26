@@ -32,7 +32,6 @@ public class Seat {
 	private int second_class;
 	private boolean second_class_isAvailable;
 	private Seat_type seatType;
-	
 
 	@ManyToOne
 	private Train train;
