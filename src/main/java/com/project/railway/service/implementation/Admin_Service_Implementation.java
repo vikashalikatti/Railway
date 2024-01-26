@@ -339,4 +339,4 @@ public class Admin_Service_Implementation implements Admin_Service {
 		structure.setStatus(HttpStatus.OK.value());
 		return new ResponseEntity<>(structure, HttpStatus.OK);
 	}
-}
+

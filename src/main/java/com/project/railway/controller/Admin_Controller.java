@@ -74,6 +74,7 @@ public class Admin_Controller {
 	public ResponseEntity<ResponseStructure<Train>> addSeats(@RequestBody Seat seat,
 			@RequestHeader("Bearer") String token, @PathVariable int train_No) {
 		return admin_Service.addSeats(seat, token, train_No);
+
 	}
 
 }
