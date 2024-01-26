@@ -27,11 +27,11 @@ public class Train {
 	private String sourceStation;
 	private String destinationStation;
 
-	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
 	private List<Seat> seats;
 
-	@OneToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private Route route;
+	@OneToOne(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+	private Route route;
 
 	@OneToOne
 	private Schedule schedule;

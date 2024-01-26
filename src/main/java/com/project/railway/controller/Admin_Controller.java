@@ -72,8 +72,9 @@ public class Admin_Controller {
 
 	@PostMapping("/addSeat/{train_No}")
 	public ResponseEntity<ResponseStructure<Train>> addSeats(@RequestBody Seat seat,
-			@RequestHeader("Bearer") String token, @PathVariable int trainNo) {
-		return admin_Service.addSeats(seat, token, trainNo);
+			@RequestHeader("Bearer") String token, @PathVariable int train_No) {
+		return admin_Service.addSeats(seat, token, train_No);
+
 	}
 
 }
