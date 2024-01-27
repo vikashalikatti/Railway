@@ -77,4 +77,11 @@ public class Admin_Controller {
 
 	}
 
+	@PostMapping("/updateseat")
+	public ResponseEntity<ResponseStructure<Train>> updateSeat(@RequestBody Seat seat,
+			@RequestHeader("Bearer") String token, @RequestParam int train_no) {
+
+		return admin_Service.updateSeat(seat, token, train_no);
+	}
+
 }

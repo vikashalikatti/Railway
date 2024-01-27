@@ -22,14 +22,7 @@ public class Route {
 	private String endStation; // Corrected field name
 	private double total_distance;
 
-
-//	@OneToMany(cascade = CascadeType.PERSIST)
-//	private List<Station> stations;
-
-
 	@OneToOne
 	private Train train;
 
-
-	}
-
+}
