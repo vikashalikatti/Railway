@@ -281,10 +281,10 @@ public class Admin_Service_Implementation implements Admin_Service {
 		}
 
 		if (newSeat.isSecond_class_isAvailable()) {
-			int secondClassSeats = newSeat.getTotal_seat() / 2;
+			int secondClassSeats = newSeat.getTotal_seat() / 2+1;
 			int sleeperClassSeats = newSeat.getTotal_seat() / 4;
-			int ac3TierSeats = newSeat.getTotal_seat() / 8;
-			int ac2TierSeats = newSeat.getTotal_seat() / 16;
+			double ac3TierSeats = newSeat.getTotal_seat() / 7;
+			int ac2TierSeats = newSeat.getTotal_seat() / 14;
 			int ac1TierSeats = newSeat.getTotal_seat() / 32;
 			newSeat.setSecond_class(secondClassSeats);
 			newSeat.setAc1_tier(ac1TierSeats);
@@ -293,7 +293,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 			newSeat.setSleeper_class(sleeperClassSeats);
 		} else {
 			int sleeperClassSeats = newSeat.getTotal_seat() / 2;
-			int ac3TierSeats = newSeat.getTotal_seat() / 4;
+			double ac3TierSeats = newSeat.getTotal_seat() / 4;
 			int ac2TierSeats = newSeat.getTotal_seat() / 8;
 			int ac1TierSeats = newSeat.getTotal_seat() / 16;
 			newSeat.setAc1_tier(ac1TierSeats);
@@ -331,10 +331,10 @@ public class Admin_Service_Implementation implements Admin_Service {
 		}
 
 		if (seat.isSecond_class_isAvailable()) {
-			int secondClassSeats = updateTotalSeats / 2;
+			int secondClassSeats = updateTotalSeats / 2+1;
 			int sleeperClassSeats = updateTotalSeats / 4;
-			int ac3TierSeats = updateTotalSeats / 8;
-			int ac2TierSeats = updateTotalSeats / 16;
+			double ac3TierSeats = updateTotalSeats / 7;
+			int ac2TierSeats = updateTotalSeats / 14;
 			int ac1TierSeats = updateTotalSeats / 32;
 
 			existingSeat.setSecond_class(secondClassSeats);
@@ -344,9 +344,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 			existingSeat.setSleeper_class(sleeperClassSeats);
 		} else {
 			int sleeperClassSeats = updateTotalSeats / 2;
-			int ac3TierSeats = updateTotalSeats / 4;
-			int ac2TierSeats = updateTotalSeats / 8;
-			int ac1TierSeats = updateTotalSeats / 16;
+			double ac3TierSeats = updateTotalSeats / 4;
+			int ac2TierSeats = updateTotalSeats / 7;
+			int ac1TierSeats = updateTotalSeats / 9;
 
 			existingSeat.setAc1_tier(ac1TierSeats);
 			existingSeat.setAc2_tier(ac2TierSeats);
