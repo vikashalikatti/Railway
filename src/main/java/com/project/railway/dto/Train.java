@@ -28,16 +28,17 @@ public class Train {
 	private String sourceStation;
 	private String destinationStation;
 
-	@OneToOne(cascade = { CascadeType.ALL, CascadeType.MERGE }, fetch = FetchType.EAGER)
+	@OneToOne(cascade = { CascadeType.ALL, CascadeType.MERGE }, fetch = FetchType.EAGER, orphanRemoval = true)
 	@JoinColumn(name = "seat_id")
 	private Seat seat;
 
-	@OneToOne(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+	@OneToOne(cascade = { CascadeType.ALL, CascadeType.MERGE }, fetch = FetchType.EAGER, orphanRemoval = true)
 	private Route route;
 
-	@OneToOne
+	@OneToOne(cascade = { CascadeType.ALL, CascadeType.MERGE }, fetch = FetchType.EAGER, orphanRemoval = true)
 	private Schedule schedule;
 
-	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+	@OneToMany(cascade = { CascadeType.ALL }, fetch = FetchType.EAGER, orphanRemoval = true)
 	private List<Station> stations;
+
 }

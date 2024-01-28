@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -74,9 +75,12 @@ public class Admin_Controller {
 	public ResponseEntity<ResponseStructure<Train>> addSeats(@RequestBody Seat seat,
 			@RequestHeader("Bearer") String token, @PathVariable int train_No) {
 		return admin_Service.addSeats(seat, token, train_No);
-
 	}
-	
-	
-	
+
+	@DeleteMapping("/delete/{train_No}")
+	public ResponseEntity<ResponseStructure<Train>> delete_train(@PathVariable int train_No,
+			@RequestHeader("Bearer") String token) {
+		return admin_Service.delete(train_No,token);
+	}
+
 }

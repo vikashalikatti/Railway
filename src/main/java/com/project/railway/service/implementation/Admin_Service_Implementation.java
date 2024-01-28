@@ -318,4 +318,59 @@ public class Admin_Service_Implementation implements Admin_Service {
 		return new ResponseEntity<>(structure, HttpStatus.OK);
 	}
 
+	@Override
+	public ResponseEntity<ResponseStructure<Train>> delete(int train_No, String token) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+
+		// Check if the authentication token is valid
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setData(null);
+			structure.setMessage("UNAUTHORIZED");
+			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+		} else {
+			Train train = train_Repository.findByTrainNumber(train_No);
+			if (train == null) {
+				structure.setStatus(HttpStatus.NOT_FOUND.value());
+				structure.setMessage("Train Not Found");
+				return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+			}
+
+			try {
+				Schedule schedule = train.getSchedule();
+				if (schedule != null) {
+					
+					schedule_Repository.delete(schedule);
+				}
+
+				Route route = train.getRoute();
+				if (route != null) {
+					route_Repository.delete(route);
+				}
+
+				List<Station> stations = train.getStations();
+				if (stations != null) {
+					station_Repository.deleteAll(stations);
+				}
+
+				Seat seat = train.getSeat();
+				if (seat != null) {
+					seat_Repository.delete(seat);
+				}
+
+				train_Repository.delete(train);
+
+				structure.setStatus(HttpStatus.ACCEPTED.value());
+				structure.setMessage("Train deleted successfully");
+				return new ResponseEntity<>(structure, HttpStatus.ACCEPTED);
+
+			} catch (Exception e) {
+				structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+				structure.setMessage("Error deleting train: " + e.getMessage());
+				return new ResponseEntity<>(structure, HttpStatus.INTERNAL_SERVER_ERROR);
+			}
+		}
+
+	}
+
 }
