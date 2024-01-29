@@ -322,7 +322,6 @@ public class Admin_Service_Implementation implements Admin_Service {
 	public ResponseEntity<ResponseStructure<Train>> delete(int train_No, String token) {
 		ResponseStructure<Train> structure = new ResponseStructure<>();
 
-		// Check if the authentication token is valid
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setData(null);
 			structure.setMessage("UNAUTHORIZED");
