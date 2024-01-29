@@ -19,6 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.Coach;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Seat;
@@ -27,7 +28,9 @@ import com.project.railway.dto.Train;
 import com.project.railway.helper.EmailService;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
+import com.project.railway.helper.Seat_type;
 import com.project.railway.repository.Admin_Repository;
+import com.project.railway.repository.Coach_Repository;
 import com.project.railway.repository.Route_Repository;
 import com.project.railway.repository.Schedule_Repository;
 import com.project.railway.repository.Seat_Repository;
@@ -71,6 +74,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 	@Autowired
 	Seat_Repository seat_Repository;
+
+	@Autowired
+	Coach_Repository coach_Repository;
 
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
@@ -309,15 +315,71 @@ public class Admin_Service_Implementation implements Admin_Service {
 		int secondClassSeats = newSeat.getSecond_class();
 		int finalseat = secondClassSeats + (totalSeats - distributedSeatsSum);
 		newSeat.setSecond_class(finalseat);
+		int sl_max = 72;
+		int ac3_max = 72;
+		int ac2_max = 52;
+		int ac1_max = 18;
+		int second_seating_max = 108;
+
+		List<Coach> coaches = new ArrayList<>();
+
+		allocateSeatsToCoaches(newSeat.getSleeper_class(), sl_max, Seat_type.SLEEPER_CLASS, coaches);
+		allocateSeatsToCoaches(newSeat.getAc3_tier(), ac3_max, Seat_type.AC3_TIER, coaches);
+		allocateSeatsToCoaches(newSeat.getAc2_tier(), ac2_max, Seat_type.AC2_TIER, coaches);
+		allocateSeatsToCoaches(newSeat.getAc1_tier(), ac1_max, Seat_type.AC1_TIER, coaches);
+		allocateSeatsToCoaches(newSeat.getSecond_class(), second_seating_max, Seat_type.SECOND_CLASS, coaches);
+
+		List<Coach> existingCoaches = train.getCoaches();
+		if (existingCoaches == null) {
+			existingCoaches = new ArrayList<>();
+		}
+
+		for (Coach coach : coaches) {
+			// Check for duplicate coach by coachNumber (you may adjust the condition as
+			// needed)
+			if (existingCoaches.stream()
+					.anyMatch(existing -> existing.getCoachNumber().equals(coach.getCoachNumber()))) {
+				structure.setMessage("Duplicate Coach");
+				structure.setStatus(HttpStatus.BAD_REQUEST.value());
+				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+			}
+		
+			// Set the train reference on the coach
+			
+			existingCoaches.add(coach);
+//			coach.setTrain(train);
+		}
+		
+		train.setCoaches(existingCoaches);
+
 		newSeat.setTrain(train);
 		train.setSeat(newSeat);
 		seat_Repository.save(newSeat);
 		train_Repository.save(train);
+		coach_Repository.saveAll(coaches);
 
 		structure.setData2(train);
 		structure.setMessage("Seats Added Successfully");
 		structure.setStatus(HttpStatus.OK.value());
 		return new ResponseEntity<>(structure, HttpStatus.OK);
+	}
+
+	private void allocateSeatsToCoaches(int seatsRequested, int maxSeatsPerCoach, Seat_type seatType,
+			List<Coach> coaches) {
+		int remainingSeats = seatsRequested;
+		int coachNumber = 1;
+
+		while (remainingSeats > 0) {
+			Coach coach = new Coach();
+			coach.setCoachType(seatType.toString());
+			coach.setCoachNumber(seatType.toString() + coachNumber);
+			coach.setNumberOfSeats(Math.min(remainingSeats, maxSeatsPerCoach));
+
+			coaches.add(coach);
+
+			remainingSeats -= maxSeatsPerCoach;
+			coachNumber++;
+		}
 	}
 
 	@Override
@@ -358,7 +420,10 @@ public class Admin_Service_Implementation implements Admin_Service {
 				if (seat != null) {
 					seat_Repository.delete(seat);
 				}
-
+				List<Coach> coach = train.getCoaches();
+				if(coach!=null) {
+					coach_Repository.deleteAll(coach);
+				}
 				train_Repository.delete(train);
 
 				structure.setStatus(HttpStatus.OK.value());
