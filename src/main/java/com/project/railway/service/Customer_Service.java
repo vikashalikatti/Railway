@@ -7,6 +7,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.Customer;
+import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
 
 import freemarker.template.MalformedTemplateNameException;
@@ -28,5 +29,7 @@ public interface Customer_Service {
 	ResponseEntity<ResponseStructure<Customer>> submitForgotOtp(String email, int otp);
 
 	ResponseEntity<ResponseStructure<Customer>> setPassword(String email, String password,String token);
+
+	ResponseEntity<ResponseStructure<Train>> searchstation(String start, String end, String email, String token);
 
 }
