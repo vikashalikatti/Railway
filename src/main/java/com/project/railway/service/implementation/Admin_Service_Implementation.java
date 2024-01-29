@@ -361,9 +361,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 				train_Repository.delete(train);
 
-				structure.setStatus(HttpStatus.ACCEPTED.value());
+				structure.setStatus(HttpStatus.OK.value());
 				structure.setMessage("Train deleted successfully");
-				return new ResponseEntity<>(structure, HttpStatus.ACCEPTED);
+				return new ResponseEntity<>(structure, HttpStatus.OK);
 
 			} catch (Exception e) {
 				structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
