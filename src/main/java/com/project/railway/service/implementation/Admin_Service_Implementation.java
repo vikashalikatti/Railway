@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.sql.Date;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -160,7 +161,8 @@ public class Admin_Service_Implementation implements Admin_Service {
 					structure.setStatus(HttpStatus.BAD_REQUEST.value());
 					return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 				}
-
+				List<String> weeks = Arrays.asList(String.valueOf(schedule.getRunningWeeks()).split(","));
+				schedule.setRunningWeeks(weeks);
 				schedule.setTrain(train);
 				Schedule savedSchedule = schedule_Repository.save(schedule);
 				train.setSchedule(savedSchedule);
@@ -338,7 +340,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 			try {
 				Schedule schedule = train.getSchedule();
 				if (schedule != null) {
-					
+
 					schedule_Repository.delete(schedule);
 				}
 
