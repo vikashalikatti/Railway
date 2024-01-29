@@ -23,7 +23,7 @@ public class Seat {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long seatId;
 	private int sleeper_class;
-	private double ac3_tier;
+	private int ac3_tier;
 	private int ac2_tier;
 	private int ac1_tier;
 	private int second_class;
