@@ -1,10 +1,10 @@
 package com.project.railway.service.implementation;
 
 import java.io.IOException;
-import java.net.InetAddress;
 import java.sql.Date;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,12 +19,14 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.project.railway.dto.Admin;
 import com.project.railway.dto.Customer;
+import com.project.railway.dto.Station;
+import com.project.railway.dto.Train;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Sms_Service;
 import com.project.railway.repository.Customer_Repository;
+import com.project.railway.repository.Train_Repository;
 import com.project.railway.service.Customer_Service;
 
 import freemarker.template.MalformedTemplateNameException;
@@ -48,6 +50,8 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	Sms_Service sms_Service;
+	@Autowired
+	Train_Repository train_Repository;
 
 	public ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws Exception {
 
@@ -225,6 +229,31 @@ public class Customer_Service_Implementation implements Customer_Service {
 			structure.setMessage("Password Reset Success");
 			structure.setStatus(HttpStatus.OK.value());
 			return new ResponseEntity<>(structure, HttpStatus.OK);
+		}
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Train>> searchstation(String start, String end, String email,
+			String token) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+		Customer customer = customer_Repository.findByEmail(email);
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setData(null);
+			structure.setMessage("Some thing Went Wrong");
+			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+		} else {
+			if (customer != null) {
+				Train train = null;
+				List<Station> station = train.getStations();
+				int endIndex = station.size() - 1;
+				
+
+			}
+			structure.setData(null);
+			structure.setMessage("Some thing Went Wrong");
+			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		}
 	}
 }
