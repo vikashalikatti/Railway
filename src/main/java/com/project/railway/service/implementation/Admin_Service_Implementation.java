@@ -343,13 +343,13 @@ public class Admin_Service_Implementation implements Admin_Service {
 				structure.setStatus(HttpStatus.BAD_REQUEST.value());
 				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 			}
-		
+
 			// Set the train reference on the coach
-			
+
 			existingCoaches.add(coach);
 //			coach.setTrain(train);
 		}
-		
+
 		train.setCoaches(existingCoaches);
 
 		newSeat.setTrain(train);
@@ -388,7 +388,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setData(null);
-			structure.setMessage("UNAUTHORIZED");
+			structure.setMessage("Invalid or Expired Token, Please Login Again");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
@@ -421,7 +421,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 					seat_Repository.delete(seat);
 				}
 				List<Coach> coach = train.getCoaches();
-				if(coach!=null) {
+				if (coach != null) {
 					coach_Repository.deleteAll(coach);
 				}
 				train_Repository.delete(train);

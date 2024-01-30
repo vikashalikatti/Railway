@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.sql.Date;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,12 +19,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Customer;
-import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Sms_Service;
 import com.project.railway.repository.Customer_Repository;
+import com.project.railway.repository.Station_Repository;
 import com.project.railway.repository.Train_Repository;
 import com.project.railway.service.Customer_Service;
 
@@ -50,8 +49,12 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	Sms_Service sms_Service;
+
 	@Autowired
 	Train_Repository train_Repository;
+
+	@Autowired
+	Station_Repository station_Repository;
 
 	public ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws Exception {
 
@@ -219,7 +222,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 		Customer customer = customer_Repository.findByEmail(email);
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setData(null);
-			structure.setMessage("Some thing Went Wrong");
+			structure.setMessage("Invalid or Expired Token, Please Login Again");
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		} else {
@@ -233,27 +236,30 @@ public class Customer_Service_Implementation implements Customer_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<Train>> searchstation(String start, String end, String email,
-			String token) {
+	public ResponseEntity<ResponseStructure<Train>> searchstation(String start, String end, String email, String token,
+			String date) {
+
 		ResponseStructure<Train> structure = new ResponseStructure<>();
 		Customer customer = customer_Repository.findByEmail(email);
+
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setData(null);
-			structure.setMessage("Some thing Went Wrong");
+			structure.setData2(null);
+			structure.setMessage("");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
 			if (customer != null) {
-				Train train = null;
-				List<Station> station = train.getStations();
-				int endIndex = station.size() - 1;
-				
 
+			} else {
+				// Handle case where the customer is not found
+				structure.setData(null);
+				structure.setData2(null);
+				structure.setMessage("Customer not found.");
+				structure.setStatus(HttpStatus.NOT_FOUND.value());
+				return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 			}
-			structure.setData(null);
-			structure.setMessage("Some thing Went Wrong");
-			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
-			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		}
+		return null;
 	}
 }

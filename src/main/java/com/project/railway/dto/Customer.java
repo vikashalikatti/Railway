@@ -34,6 +34,7 @@ public class Customer {
 	private LocalDateTime setOtpGeneratedTime;
 	private boolean status;
 	private String role;
+	private int age;
 
 	@OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
 	private List<Booking> bookings;
