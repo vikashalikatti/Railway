@@ -1,6 +1,7 @@
 package com.project.railway.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import org.springframework.stereotype.Component;
 
@@ -29,7 +30,6 @@ public class Station {
 	private LocalDateTime departureTime;
 	private LocalDateTime arrivalTime;
 	private double km;
-
 
 	@ManyToOne(cascade = CascadeType.PERSIST)
 	private Route route;

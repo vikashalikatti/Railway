@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Customer;
+import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.service.Customer_Service;
@@ -68,7 +69,7 @@ public class Customer_Controller {
 	}
 
 	@GetMapping("/searchStation")
-	public ResponseEntity<ResponseStructure<Train>> searchstation(@RequestParam String start, @RequestParam String end,
+	public ResponseEntity<ResponseStructure<Station>> searchstation(@RequestParam String start, @RequestParam String end,
 			@RequestParam String email, @RequestHeader("Bearer") String token, @RequestParam String date) {
 		return customer_Service.searchstation(start, end, email, token, date);
 	}

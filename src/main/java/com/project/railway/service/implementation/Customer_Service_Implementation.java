@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Customer;
-import com.project.railway.dto.Train;
+import com.project.railway.dto.Station;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Sms_Service;
@@ -236,10 +236,9 @@ public class Customer_Service_Implementation implements Customer_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<Train>> searchstation(String start, String end, String email, String token,
-			String date) {
-
-		ResponseStructure<Train> structure = new ResponseStructure<>();
+	public ResponseEntity<ResponseStructure<Station>> searchstation(String start, String end, String email,
+			String token, String date) {
+		ResponseStructure<Station> structure = new ResponseStructure<>();
 		Customer customer = customer_Repository.findByEmail(email);
 
 		if (!jwtUtil.isValidToken(token)) {
@@ -250,9 +249,14 @@ public class Customer_Service_Implementation implements Customer_Service {
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
 			if (customer != null) {
-
+				Station boarding = station_Repository.findByStationName(start);
+				Station destination = station_Repository.findByStationName(end);
+				System.out.print(boarding.getTrains().getCoaches());
+				
+				structure.setMessage("Train");
+				structure.setStatus(HttpStatus.OK.value());
+				return new ResponseEntity<>(structure, HttpStatus.OK);
 			} else {
-				// Handle case where the customer is not found
 				structure.setData(null);
 				structure.setData2(null);
 				structure.setMessage("Customer not found.");
@@ -260,6 +264,5 @@ public class Customer_Service_Implementation implements Customer_Service {
 				return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 			}
 		}
-		return null;
 	}
 }

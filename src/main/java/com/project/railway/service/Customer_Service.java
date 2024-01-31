@@ -7,6 +7,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.Customer;
+import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
 
@@ -30,6 +31,6 @@ public interface Customer_Service {
 
 	ResponseEntity<ResponseStructure<Customer>> setPassword(String email, String password,String token);
 
-	ResponseEntity<ResponseStructure<Train>> searchstation(String start, String end, String email, String token,String date);
+	ResponseEntity<ResponseStructure<Station>> searchstation(String start, String end, String email, String token,String date);
 
 }
