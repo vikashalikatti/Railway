@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.sql.Date;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -249,20 +250,25 @@ public class Customer_Service_Implementation implements Customer_Service {
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
 			if (customer != null) {
-				Station boarding = station_Repository.findByStationName(start);
-				Station destination = station_Repository.findByStationName(end);
-				System.out.print(boarding.getTrains().getCoaches());
-				
-				structure.setMessage("Train");
-				structure.setStatus(HttpStatus.OK.value());
-				return new ResponseEntity<>(structure, HttpStatus.OK);
+				List<Station> boardingStations = station_Repository.findByStationName(start);
+				List<Station> destinationStations = station_Repository.findByStationName(end);
+
+				if (boardingStations.isEmpty() || destinationStations.isEmpty()) {
+					structure.setMessage("No matching stations found.");
+					structure.setStatus(HttpStatus.NOT_FOUND.value());
+					return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+				} else {
+					structure.setListStation(boardingStations);
+					structure.setMessage("List Of Trains");
+					structure.setStatus(HttpStatus.OK.value());
+					return new ResponseEntity<>(structure, HttpStatus.OK);
+				}
 			} else {
-				structure.setData(null);
-				structure.setData2(null);
 				structure.setMessage("Customer not found.");
 				structure.setStatus(HttpStatus.NOT_FOUND.value());
 				return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 			}
 		}
 	}
+
 }
