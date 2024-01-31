@@ -249,9 +249,9 @@ public class Customer_Service_Implementation implements Customer_Service {
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
 			if (customer != null) {
-				Station boarding = station_Repository.findByStationName(start);
-				Station destination = station_Repository.findByStationName(end);
-				System.out.print(boarding.getTrains().getCoaches());
+//				Station boarding = station_Repository.findByStationName(start);
+//				Station destination = station_Repository.findByStationName(end);
+//				System.out.print(boarding.getTrains().getCoaches());
 				
 				structure.setMessage("Train");
 				structure.setStatus(HttpStatus.OK.value());
