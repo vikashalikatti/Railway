@@ -31,6 +31,7 @@ public interface Customer_Service {
 
 	ResponseEntity<ResponseStructure<Customer>> setPassword(String email, String password,String token);
 
-	ResponseEntity<ResponseStructure<Station>> searchstation(String start, String end, String email, String token,String date);
+	ResponseEntity<ResponseStructure<Station>> searchStation(String start, String end, String email,
+	        String token, String date);
 
 }
