@@ -41,4 +41,6 @@ public class Train {
 	@OneToMany(cascade = { CascadeType.ALL }, fetch = FetchType.EAGER, orphanRemoval = true)
 	private List<Station> stations;
 
+	@OneToMany(cascade = { CascadeType.ALL }, fetch = FetchType.EAGER)
+	private List<Coach> coaches;
 }

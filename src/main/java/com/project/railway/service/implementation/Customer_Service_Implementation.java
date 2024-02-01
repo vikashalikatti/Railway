@@ -1,10 +1,10 @@
 package com.project.railway.service.implementation;
 
 import java.io.IOException;
-import java.net.InetAddress;
 import java.sql.Date;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,12 +19,14 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.project.railway.dto.Admin;
 import com.project.railway.dto.Customer;
+import com.project.railway.dto.Station;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Sms_Service;
 import com.project.railway.repository.Customer_Repository;
+import com.project.railway.repository.Station_Repository;
+import com.project.railway.repository.Train_Repository;
 import com.project.railway.service.Customer_Service;
 
 import freemarker.template.MalformedTemplateNameException;
@@ -49,7 +51,13 @@ public class Customer_Service_Implementation implements Customer_Service {
 	@Autowired
 	Sms_Service sms_Service;
 
-	public ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws Exception {
+	@Autowired
+	Train_Repository train_Repository;
+
+	@Autowired
+	Station_Repository station_Repository;
+
+	public ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws Exception { 
 
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
 
@@ -171,7 +179,6 @@ public class Customer_Service_Implementation implements Customer_Service {
 				return new ResponseEntity<>(structure, HttpStatus.NOT_ACCEPTABLE);
 			}
 		}
-
 	}
 
 	@Override
@@ -215,7 +222,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 		Customer customer = customer_Repository.findByEmail(email);
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setData(null);
-			structure.setMessage("Some thing Went Wrong");
+			structure.setMessage("Invalid or Expired Token, Please Login Again");
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		} else {
@@ -225,6 +232,41 @@ public class Customer_Service_Implementation implements Customer_Service {
 			structure.setMessage("Password Reset Success");
 			structure.setStatus(HttpStatus.OK.value());
 			return new ResponseEntity<>(structure, HttpStatus.OK);
+		}
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Station>> searchstation(String start, String end, String email,
+			String token, String date) {
+		ResponseStructure<Station> structure = new ResponseStructure<>();
+		Customer customer = customer_Repository.findByEmail(email);
+
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setData(null);
+			structure.setData2(null);
+			structure.setMessage("");
+			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+		} else {
+			if (customer != null) {
+				List<Station> boardingStations = station_Repository.findByStationName(start);
+				List<Station> destinationStations = station_Repository.findByStationName(end);
+
+				if (boardingStations.isEmpty() || destinationStations.isEmpty()) {
+					structure.setMessage("No matching stations found.");
+					structure.setStatus(HttpStatus.NOT_FOUND.value());
+					return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+				} else {
+					structure.setListStation(boardingStations);
+					structure.setMessage("List Of Trains");
+					structure.setStatus(HttpStatus.OK.value());
+					return new ResponseEntity<>(structure, HttpStatus.OK);
+				}
+			} else {
+				structure.setMessage("Customer not found.");
+				structure.setStatus(HttpStatus.NOT_FOUND.value());
+				return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+			}
 		}
 	}
 }

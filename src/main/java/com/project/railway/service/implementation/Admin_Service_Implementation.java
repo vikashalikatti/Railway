@@ -304,7 +304,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 			newSeat.setSleeper_class(sleeperClassSeats);
 		}
 		int distributedSeatsSum = (int) (newSeat.getSecond_class() + newSeat.getSleeper_class() + newSeat.getAc1_tier()
-				+ newSeat.getAc2_tier() + newSeat.getAc3_tier());
+		+ newSeat.getAc2_tier() + newSeat.getAc3_tier());
 
 		int secondClassSeats = newSeat.getSecond_class();
 		int finalseat = secondClassSeats + (totalSeats - distributedSeatsSum);
@@ -371,7 +371,5 @@ public class Admin_Service_Implementation implements Admin_Service {
 				return new ResponseEntity<>(structure, HttpStatus.INTERNAL_SERVER_ERROR);
 			}
 		}
-
 	}
-
 }
