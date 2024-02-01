@@ -71,7 +71,7 @@ public class Customer_Controller {
 	@GetMapping("/searchStation")
 	public ResponseEntity<ResponseStructure<Station>> searchstation(@RequestParam String start, @RequestParam String end,
 			@RequestParam String email, @RequestHeader("Bearer") String token, @RequestParam String date) {
-		return customer_Service.searchstation(start, end, email, token, date);
+		return customer_Service.searchStation(start, end, email, token, date);
 	}
 
 }

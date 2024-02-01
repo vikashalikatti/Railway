@@ -3,7 +3,10 @@ package com.project.railway.service.implementation;
 import java.io.IOException;
 import java.sql.Date;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
@@ -20,7 +23,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Customer;
+import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Station;
+import com.project.railway.dto.Train;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Sms_Service;
@@ -237,15 +242,13 @@ public class Customer_Service_Implementation implements Customer_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<Station>> searchstation(String start, String end, String email,
+	public ResponseEntity<ResponseStructure<Station>> searchStation(String start, String end, String email,
 			String token, String date) {
 		ResponseStructure<Station> structure = new ResponseStructure<>();
 		Customer customer = customer_Repository.findByEmail(email);
 
 		if (!jwtUtil.isValidToken(token)) {
-			structure.setData(null);
-			structure.setData2(null);
-			structure.setMessage("");
+			structure.setMessage("Invalid token.");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
@@ -258,10 +261,27 @@ public class Customer_Service_Implementation implements Customer_Service {
 					structure.setStatus(HttpStatus.NOT_FOUND.value());
 					return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 				} else {
-					structure.setListStation(boardingStations);
-					structure.setMessage("List Of Trains");
-					structure.setStatus(HttpStatus.OK.value());
-					return new ResponseEntity<>(structure, HttpStatus.OK);
+					for (Station station : boardingStations) {
+						Train train = station.getTrains();
+						List<Station> stations = train.getStations();
+						boolean isRunningOnRoute = isTrainRunningOnRoute(stations, start, end);
+
+						DateTimeFormatter formatter = DateTimeFormatter.ofPattern("M/d/yyyy");
+						LocalDate localDate = LocalDate.parse(date, formatter);
+						Schedule schedule = train.getSchedule();
+						String[] week = schedule.getRunningWeeks();
+						String dayOfWeek = localDate.getDayOfWeek().toString().toLowerCase();
+						if (isRunningOnRoute
+								&& Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
+							structure.setListStation(boardingStations);
+							structure.setMessage("List Of Trains");
+							structure.setStatus(HttpStatus.OK.value());
+							return new ResponseEntity<>(structure, HttpStatus.OK);
+						}
+					}
+					structure.setMessage("No matching trains found for the specified route.");
+					structure.setStatus(HttpStatus.NOT_FOUND.value());
+					return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 				}
 			} else {
 				structure.setMessage("Customer not found.");
@@ -269,6 +289,20 @@ public class Customer_Service_Implementation implements Customer_Service {
 				return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 			}
 		}
+	}
+
+	private boolean isTrainRunningOnRoute(List<Station> stations, String start, String end) {
+		boolean foundStart = false;
+
+		for (Station station : stations) {
+			if (station.getStationName().contains(start)) {
+				foundStart = true;
+			} else if (foundStart && station.getStationName().contains(end)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 }

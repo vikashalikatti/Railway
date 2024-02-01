@@ -30,7 +30,7 @@ public class Schedule {
 	private LocalDateTime arrivalTime;
 
 	private LocalDateTime departureTime;
-	private List<String> runningWeeks;
+	private String[] runningWeeks;
 	@ManyToOne(fetch = FetchType.EAGER)
 	@JsonIgnoreProperties("schedules")
 	private Train train;
