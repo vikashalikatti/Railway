@@ -7,7 +7,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Seat;
-import com.project.railway.dto.Station;
+import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
 
 import freemarker.template.MalformedTemplateNameException;
@@ -29,7 +29,7 @@ public interface Customer_Service {
 
 	ResponseEntity<ResponseStructure<Customer>> setPassword(String email, String password, String token);
 
-	ResponseEntity<ResponseStructure<Station>> searchStation(String start, String end, String email, String token,
+	ResponseEntity<ResponseStructure<Train>> searchStation(String start, String end, String email, String token,
 			String date);
 
 	ResponseEntity<ResponseStructure<Seat>> selectSeatType(String seat_type, int train_no, String token, String date);

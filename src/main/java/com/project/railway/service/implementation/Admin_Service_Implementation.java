@@ -1,6 +1,8 @@
 package com.project.railway.service.implementation;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.InetAddress;
 import java.sql.Date;
 import java.util.ArrayList;
@@ -246,6 +248,8 @@ public class Admin_Service_Implementation implements Admin_Service {
 			stations.addAll(train.getStations());
 			for (Station station : stations) {
 				station.setRoute(routes);
+				double stationPrice = calculateStationPrice(routes.getPrice(), station.getKm());
+				station.setPrice(stationPrice);
 				kms += station.getKm();
 
 			}
@@ -263,6 +267,13 @@ public class Admin_Service_Implementation implements Admin_Service {
 			structure.setStatus(HttpStatus.OK.value());
 			return new ResponseEntity<>(structure, HttpStatus.OK);
 		}
+	}
+
+	private double calculateStationPrice(double routePrice, double stationDistance) {
+		double pricePerKm = 1.11;
+		BigDecimal stationPrice = new BigDecimal(routePrice + (pricePerKm * stationDistance));
+		stationPrice = stationPrice.setScale(2, RoundingMode.HALF_UP);
+		return stationPrice.doubleValue();
 	}
 
 	private double calculatePrice(double distance) {
@@ -334,23 +345,42 @@ public class Admin_Service_Implementation implements Admin_Service {
 		}
 
 		for (Coach coach : coaches) {
-			// Check for duplicate coach by coachNumber (you may adjust the condition as
-			// needed)
 			if (existingCoaches.stream()
 					.anyMatch(existing -> existing.getCoachNumber().equals(coach.getCoachNumber()))) {
 				structure.setMessage("Duplicate Coach");
 				structure.setStatus(HttpStatus.BAD_REQUEST.value());
 				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 			}
-
-			// Set the train reference on the coach
-
 			existingCoaches.add(coach);
-//			coach.setTrain(train);
+		}
+
+		List<Station> stations = train.getStations();
+		for (Station station : stations) {
+			for (Coach coach : existingCoaches) {
+				Seat_type coachType = Seat_type.valueOf(coach.getCoachType());
+
+				switch (coachType) {
+				case SLEEPER_CLASS:
+					coach.setTotal_price(station.getPrice() + 100);
+					break;
+				case SECOND_CLASS:
+					coach.setTotal_price(station.getPrice() + 50);
+					break;
+				case AC3_TIER:
+					coach.setTotal_price(station.getPrice() + 150);
+					break;
+				case AC2_TIER:
+					coach.setTotal_price(station.getPrice() + 200);
+					break;
+				case AC1_TIER:
+					coach.setTotal_price(station.getPrice() + 250);
+					break;
+				}
+			}
+
 		}
 
 		train.setCoaches(existingCoaches);
-
 		newSeat.setTrain(train);
 		train.setSeat(newSeat);
 		seat_Repository.save(newSeat);

@@ -244,9 +244,9 @@ public class Customer_Service_Implementation implements Customer_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<Station>> searchStation(String start, String end, String email,
-			String token, String date) {
-		ResponseStructure<Station> structure = new ResponseStructure<>();
+	public ResponseEntity<ResponseStructure<Train>> searchStation(String start, String end, String email, String token,
+			String date) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
 		Customer customer = customer_Repository.findByEmail(email);
 
 		if (!jwtUtil.isValidToken(token)) {
@@ -275,8 +275,8 @@ public class Customer_Service_Implementation implements Customer_Service {
 						String dayOfWeek = localDate.getDayOfWeek().toString().toLowerCase();
 						if (isRunningOnRoute
 								&& Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
-							structure.setListStation(boardingStations);
-							structure.setMessage("List Of Trains");
+							structure.setData2(train);
+							structure.setMessage("List Of Trains " + start + " to " + end);
 							structure.setStatus(HttpStatus.OK.value());
 							return new ResponseEntity<>(structure, HttpStatus.OK);
 						}
