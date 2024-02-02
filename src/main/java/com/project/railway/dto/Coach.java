@@ -16,9 +16,5 @@ public class Coach {
 	private String coachNumber;
 	private String coachType;
 	private int numberOfSeats;
-	
-//	@ManyToOne
-//	Train train;
-
-
+	private double total_price;
 }

@@ -18,7 +18,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Seat;
-import com.project.railway.dto.Station;
+import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.service.Customer_Service;
 
@@ -69,9 +69,8 @@ public class Customer_Controller {
 	}
 
 	@GetMapping("/searchStation")
-	public ResponseEntity<ResponseStructure<Station>> searchstation(@RequestParam String start,
-			@RequestParam String end, @RequestParam String email, @RequestHeader("Bearer") String token,
-			@RequestParam String date) {
+	public ResponseEntity<ResponseStructure<Train>> searchstation(@RequestParam String start, @RequestParam String end,
+			@RequestParam String email, @RequestHeader("Bearer") String token, @RequestParam String date) {
 		return customer_Service.searchStation(start, end, email, token, date);
 	}
 
