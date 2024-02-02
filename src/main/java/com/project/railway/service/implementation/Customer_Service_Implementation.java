@@ -24,10 +24,12 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Schedule;
+import com.project.railway.dto.Seat;
 import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
+import com.project.railway.helper.Seat_type;
 import com.project.railway.helper.Sms_Service;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.repository.Station_Repository;
@@ -303,6 +305,63 @@ public class Customer_Service_Implementation implements Customer_Service {
 		}
 
 		return false;
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Seat>> selectSeatType(String seat_type, int train_no, String token,
+			String date) {
+		ResponseStructure<Seat> structure = new ResponseStructure<>();
+		Train train = train_Repository.findByTrainNumber(train_no);
+
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setMessage("Invalid token.");
+			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+		}
+
+		if (train == null) {
+			structure.setMessage("Train not Found");
+			structure.setStatus(HttpStatus.BAD_REQUEST.value());
+			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		}
+
+		Seat seat = train.getSeat();
+		seat_type = seat_type.toUpperCase();
+		Seat_type inputSeatType;
+		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("M/d/yyyy");
+		LocalDate localDate = LocalDate.parse(date, formatter);
+		Schedule schedule = train.getSchedule();
+		String[] week = schedule.getRunningWeeks();
+		String dayOfWeek = localDate.getDayOfWeek().toString().toLowerCase();
+		if (Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
+			try {
+				inputSeatType = Seat_type.valueOf(seat_type);
+			} catch (IllegalArgumentException e) {
+				structure.setMessage("Invalid Seat Type");
+				structure.setStatus(HttpStatus.BAD_REQUEST.value());
+				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+			}
+
+			switch (inputSeatType) {
+			case SECOND_CLASS:
+			case SLEEPER_CLASS:
+			case AC3_TIER:
+			case AC2_TIER:
+			case AC1_TIER:
+				structure.setData2(seat);
+				structure.setMessage("Seat Available");
+				structure.setStatus(HttpStatus.OK.value());
+				return new ResponseEntity<>(structure, HttpStatus.OK);
+			default:
+				structure.setMessage("No Seat Available");
+				structure.setStatus(HttpStatus.BAD_REQUEST.value());
+				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+			}
+		} else {
+			structure.setMessage("Train is not scheduled on the specified date");
+			structure.setStatus(HttpStatus.BAD_REQUEST.value());
+			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		}
 	}
 
 }
