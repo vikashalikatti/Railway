@@ -76,8 +76,9 @@ public class Customer_Controller {
 
 	@GetMapping("/selet_class/{train_no}")
 	public ResponseEntity<ResponseStructure<Seat>> selectSeatType(@RequestParam String seat_type,
-			@PathVariable int train_no, @RequestHeader("Bearer") String token, @RequestParam String date) {
-		return customer_Service.selectSeatType(seat_type, train_no, token, date);
+			@PathVariable int train_no, @RequestHeader("Bearer") String token, @RequestParam String date,
+			@RequestParam String start, @RequestParam String end) {
+		return customer_Service.selectSeatType(seat_type, train_no, token, date, start, end);
 	}
 
 }

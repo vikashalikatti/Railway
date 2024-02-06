@@ -263,6 +263,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 					structure.setStatus(HttpStatus.NOT_FOUND.value());
 					return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 				} else {
+
 					for (Station station : boardingStations) {
 						Train train = station.getTrains();
 						List<Station> stations = train.getStations();
@@ -273,6 +274,11 @@ public class Customer_Service_Implementation implements Customer_Service {
 						Schedule schedule = train.getSchedule();
 						String[] week = schedule.getRunningWeeks();
 						String dayOfWeek = localDate.getDayOfWeek().toString().toLowerCase();
+						if (localDate.isBefore(LocalDate.now())) {
+							structure.setMessage("Specified date is in the past.");
+							structure.setStatus(HttpStatus.BAD_REQUEST.value());
+							return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+						}
 						if (isRunningOnRoute
 								&& Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
 							structure.setData2(train);
@@ -308,10 +314,10 @@ public class Customer_Service_Implementation implements Customer_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<Seat>> selectSeatType(String seat_type, int train_no, String token,
-			String date) {
+	public ResponseEntity<ResponseStructure<Seat>> selectSeatType(String seatType, int trainNo, String token,
+			String date, String start, String end) {
 		ResponseStructure<Seat> structure = new ResponseStructure<>();
-		Train train = train_Repository.findByTrainNumber(train_no);
+		Train train = train_Repository.findByTrainNumber(trainNo);
 
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setMessage("Invalid token.");
@@ -320,22 +326,41 @@ public class Customer_Service_Implementation implements Customer_Service {
 		}
 
 		if (train == null) {
-			structure.setMessage("Train not Found");
+			structure.setMessage("Train not found");
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		}
 
+		List<Station> boardingStations = station_Repository.findByStationName(start);
+		List<Station> destinationStations = station_Repository.findByStationName(end);
+
+		if (boardingStations.isEmpty() || destinationStations.isEmpty()) {
+			structure.setMessage("No matching stations found.");
+			structure.setStatus(HttpStatus.NOT_FOUND.value());
+			return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+		}
+
 		Seat seat = train.getSeat();
-		seat_type = seat_type.toUpperCase();
+		seatType = seatType.toUpperCase();
 		Seat_type inputSeatType;
 		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("M/d/yyyy");
 		LocalDate localDate = LocalDate.parse(date, formatter);
+
+		if (localDate.isBefore(LocalDate.now())) {
+			structure.setMessage("Specified date is in the past.");
+			structure.setStatus(HttpStatus.BAD_REQUEST.value());
+			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		}
+
 		Schedule schedule = train.getSchedule();
 		String[] week = schedule.getRunningWeeks();
 		String dayOfWeek = localDate.getDayOfWeek().toString().toLowerCase();
-		if (Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
+
+		boolean isRunningOnRoute = isTrainRunningOnRoute(train.getStations(), start, end);
+
+		if (isRunningOnRoute && Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
 			try {
-				inputSeatType = Seat_type.valueOf(seat_type);
+				inputSeatType = Seat_type.valueOf(seatType);
 			} catch (IllegalArgumentException e) {
 				structure.setMessage("Invalid Seat Type");
 				structure.setStatus(HttpStatus.BAD_REQUEST.value());
@@ -358,9 +383,9 @@ public class Customer_Service_Implementation implements Customer_Service {
 				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 			}
 		} else {
-			structure.setMessage("Train is not scheduled on the specified date");
-			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+			structure.setMessage("No matching trains found for the specified route.");
+			structure.setStatus(HttpStatus.NOT_FOUND.value());
+			return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 		}
 	}
 
