@@ -5,6 +5,7 @@ import java.sql.Date;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
@@ -72,8 +73,6 @@ public class Customer_Service_Implementation implements Customer_Service {
 		byte[] picture = new byte[pic.getBytes().length];
 		pic.getInputStream().read(picture);
 		customer.setPhoto(picture);
-
-		// Check for duplicate email or mobile
 		if (customer_Repository.findByEmail(customer.getEmail()) != null
 				|| customer_Repository.findByMobile(customer.getMobile()) != null) {
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
@@ -122,7 +121,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 			if (userDetails != null) {
 				long expirationMillis = System.currentTimeMillis() + 3600000; // 1 hour in milliseconds
 				Date expirationDate = new Date(expirationMillis);
-				String token = jwtUtil.generateToken_for_admin(userDetails, expirationDate);
+				String token = jwtUtil.generateToken_for_customer(customer, expirationDate);
 				structure.setData(token);
 				structure.setMessage("Login Success");
 				structure.setStatus(HttpStatus.OK.value());
@@ -339,7 +338,15 @@ public class Customer_Service_Implementation implements Customer_Service {
 			structure.setStatus(HttpStatus.NOT_FOUND.value());
 			return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 		}
-
+		for (Station station : boardingStations) {
+			LocalTime departureTime = station.getDepartureTime();
+			LocalTime currentTime = LocalTime.now();
+			if (currentTime.isAfter(departureTime)) {
+				structure.setMessage("Train Departed");
+				structure.setStatus(HttpStatus.NOT_FOUND.value());
+				return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+			}
+		}
 		Seat seat = train.getSeat();
 		seatType = seatType.toUpperCase();
 		Seat_type inputSeatType;
@@ -387,6 +394,6 @@ public class Customer_Service_Implementation implements Customer_Service {
 			structure.setStatus(HttpStatus.NOT_FOUND.value());
 			return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 		}
-	}
 
+	}
 }

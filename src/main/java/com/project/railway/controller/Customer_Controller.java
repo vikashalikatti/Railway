@@ -25,6 +25,8 @@ import com.project.railway.service.Customer_Service;
 import freemarker.template.MalformedTemplateNameException;
 import freemarker.template.TemplateNotFoundException;
 import jakarta.mail.internet.ParseException;
+import org.springframework.web.bind.annotation.RequestBody;
+
 
 @RestController
 @RequestMapping("customer")
@@ -80,5 +82,7 @@ public class Customer_Controller {
 			@RequestParam String start, @RequestParam String end) {
 		return customer_Service.selectSeatType(seat_type, train_no, token, date, start, end);
 	}
-
+	
+	
+	
 }
