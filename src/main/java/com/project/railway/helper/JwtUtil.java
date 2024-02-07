@@ -3,9 +3,9 @@ package com.project.railway.helper;
 import java.util.Date;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
+import com.project.railway.dto.Admin;
 import com.project.railway.dto.Customer;
 
 import io.jsonwebtoken.Claims;
@@ -37,8 +37,8 @@ public class JwtUtil {
 		}
 	}
 
-	public String generateToken_for_admin(UserDetails userDetails, Date expirationDate) {
-		String token = Jwts.builder().setSubject(userDetails.getUsername()).setExpiration(expirationDate)
+	public String generateToken_for_admin(Admin admin, Date expirationDate) {
+		String token = Jwts.builder().setSubject(admin.getName() + "|" + admin.getRole()).setExpiration(expirationDate)
 				.signWith(SignatureAlgorithm.HS512, SECRET_KEY).compact();
 		return token;
 	}
@@ -54,9 +54,9 @@ public class JwtUtil {
 		}
 	}
 
-	public String generateToken_for_customer(Customer customer,Date expirationDate) {
-		String token = Jwts.builder().setSubject(customer.getEmail()).setExpiration(expirationDate)
-				.signWith(SignatureAlgorithm.HS512, SECRET_KEY).compact();
+	public String generateToken_for_customer(Customer customer, Date expirationDate) {
+		String token = Jwts.builder().setSubject(customer.getEmail() + "|" + customer.getRole())
+				.setExpiration(expirationDate).signWith(SignatureAlgorithm.HS512, SECRET_KEY).compact();
 		return token;
 	}
 }

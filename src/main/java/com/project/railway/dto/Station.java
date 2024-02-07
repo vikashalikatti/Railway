@@ -1,6 +1,6 @@
 package com.project.railway.dto;
 
-import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 import org.springframework.stereotype.Component;
 
@@ -26,8 +26,8 @@ public class Station {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long stationId;
 	private String stationName;
-	private LocalDateTime departureTime;
-	private LocalDateTime arrivalTime;
+	private LocalTime departureTime;
+	private LocalTime arrivalTime;
 	private double km;
 	private double price;
 
