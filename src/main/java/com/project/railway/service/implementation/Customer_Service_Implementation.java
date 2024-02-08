@@ -338,15 +338,21 @@ public class Customer_Service_Implementation implements Customer_Service {
 			structure.setStatus(HttpStatus.NOT_FOUND.value());
 			return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 		}
-		for (Station station : boardingStations) {
-			LocalTime departureTime = station.getDepartureTime();
+		for (Station boardingStation : boardingStations) {
+			LocalTime departureTime = boardingStation.getDepartureTime();
 			LocalTime currentTime = LocalTime.now();
+
+			DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+			String formattedDepartureTime = departureTime.format(formatter);
+			String formattedCurrentTime = currentTime.format(formatter);
+
 			if (currentTime.isAfter(departureTime)) {
 				structure.setMessage("Train Departed");
 				structure.setStatus(HttpStatus.NOT_FOUND.value());
 				return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 			}
 		}
+
 		Seat seat = train.getSeat();
 		seatType = seatType.toUpperCase();
 		Seat_type inputSeatType;

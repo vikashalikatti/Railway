@@ -1,6 +1,7 @@
 package com.project.railway.dto;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
@@ -27,9 +28,9 @@ public class Schedule {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long scheduleId;
 
-	private LocalDateTime arrivalTime;
+	private LocalTime arrivalTime;
 
-	private LocalDateTime departureTime;
+	private LocalTime departureTime;
 	private String[] runningWeeks;
 	@ManyToOne(fetch = FetchType.EAGER)
 	@JsonIgnoreProperties("schedules")
