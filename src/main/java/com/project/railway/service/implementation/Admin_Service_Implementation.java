@@ -210,7 +210,6 @@ public class Admin_Service_Implementation implements Admin_Service {
 					structure.setStatus(HttpStatus.BAD_REQUEST.value());
 					return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 				}
-
 				station.setTrains(train);
 				existingStations.add(station);
 			}
