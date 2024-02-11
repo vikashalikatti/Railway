@@ -27,10 +27,6 @@ public class Schedule {
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long scheduleId;
-
-	private LocalTime arrivalTime;
-
-	private LocalTime departureTime;
 	private String[] runningWeeks;
 	@ManyToOne(fetch = FetchType.EAGER)
 	@JsonIgnoreProperties("schedules")
