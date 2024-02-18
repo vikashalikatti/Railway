@@ -1,10 +1,12 @@
 package com.project.railway.service;
 
 import java.io.IOException;
+import java.util.List;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.project.railway.dto.Booking;
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Seat;
 import com.project.railway.dto.Train;
@@ -33,5 +35,7 @@ public interface Customer_Service {
 			String date);
 
 	ResponseEntity<ResponseStructure<Seat>> selectSeatType(String seat_type, int train_no, String token, String date, String start, String end);
+
+	ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token);
 
 }

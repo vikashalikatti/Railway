@@ -23,6 +23,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.project.railway.dto.Booking;
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Seat;
@@ -401,5 +402,23 @@ public class Customer_Service_Implementation implements Customer_Service {
 			return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 		}
 
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token) {
+		ResponseStructure<Booking> structure = new ResponseStructure<>();
+		if (!jwtUtil.isValidToken(token)) {
+			structure.setMessage("Invalid token.");
+			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+		} else {
+			for (Booking booking : bookings) {
+				System.out.println(booking);
+			}
+			structure.setData(token);
+			structure.setMessage("booking done");
+			structure.setStatus(HttpStatus.OK.value());
+			return new ResponseEntity<>(structure, HttpStatus.OK);
+		}
 	}
 }
