@@ -5,6 +5,8 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
+import com.project.railway.helper.Seat_type;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -32,6 +34,10 @@ public class Booking {
 
 	private String passengerName;
 	private Long contactNumber;
+	private String address;
+	private String seat_type;
+	private int seat_No;
+	
 	private LocalDateTime bookingTime;
 
 	@ManyToOne

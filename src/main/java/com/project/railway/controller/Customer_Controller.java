@@ -1,6 +1,7 @@
 package com.project.railway.controller;
 
 import java.io.IOException;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.project.railway.dto.Booking;
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Seat;
 import com.project.railway.dto.Train;
@@ -25,8 +27,6 @@ import com.project.railway.service.Customer_Service;
 import freemarker.template.MalformedTemplateNameException;
 import freemarker.template.TemplateNotFoundException;
 import jakarta.mail.internet.ParseException;
-import org.springframework.web.bind.annotation.RequestBody;
-
 
 @RestController
 @RequestMapping("customer")
@@ -76,13 +76,17 @@ public class Customer_Controller {
 		return customer_Service.searchStation(start, end, email, token, date);
 	}
 
-	@GetMapping("/selet_class/{train_no}")
+	@GetMapping("/select_class/{train_no}")
 	public ResponseEntity<ResponseStructure<Seat>> selectSeatType(@RequestParam String seat_type,
 			@PathVariable int train_no, @RequestHeader("Bearer") String token, @RequestParam String date,
 			@RequestParam String start, @RequestParam String end) {
 		return customer_Service.selectSeatType(seat_type, train_no, token, date, start, end);
 	}
-	
-	
-	
+
+	@PostMapping("/booking/{train_NO}")
+	public ResponseEntity<ResponseStructure<Booking>> booking(@ModelAttribute List<Booking> bookings,
+			@RequestHeader String token) {
+		return customer_Service.booking(bookings, token);
+	}
+
 }
