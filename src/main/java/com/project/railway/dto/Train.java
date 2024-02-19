@@ -27,6 +27,7 @@ public class Train {
 	private String trainName;
 	private String sourceStation;
 	private String destinationStation;
+	private String train_type;
 
 	@OneToOne(cascade = { CascadeType.ALL, CascadeType.MERGE }, fetch = FetchType.EAGER, orphanRemoval = true)
 	@JoinColumn(name = "seat_id")

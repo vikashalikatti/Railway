@@ -12,5 +12,4 @@ public class ResponseStructure<T> {
 	String data;
 	String message;
 	T data2;
-	List<Station> listStation;
 }

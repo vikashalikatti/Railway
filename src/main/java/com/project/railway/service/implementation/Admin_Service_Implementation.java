@@ -1,10 +1,11 @@
 package com.project.railway.service.implementation;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.InetAddress;
 import java.sql.Date;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +20,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.Coach;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Seat;
@@ -27,7 +29,9 @@ import com.project.railway.dto.Train;
 import com.project.railway.helper.EmailService;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
+import com.project.railway.helper.Seat_type;
 import com.project.railway.repository.Admin_Repository;
+import com.project.railway.repository.Coach_Repository;
 import com.project.railway.repository.Route_Repository;
 import com.project.railway.repository.Schedule_Repository;
 import com.project.railway.repository.Seat_Repository;
@@ -72,6 +76,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 	@Autowired
 	Seat_Repository seat_Repository;
 
+	@Autowired
+	Coach_Repository coach_Repository;
+
 	@Override
 	public ResponseEntity<ResponseStructure<Admin>> create(Admin admin) {
 		ResponseStructure<Admin> structure = new ResponseStructure<>();
@@ -114,7 +121,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 				long expirationMillis = System.currentTimeMillis() + 3600000; // 1 hour in milliseconds
 				Date expirationDate = new Date(expirationMillis);
 				// emailService.sendInfoEmail(admin, location);
-				String token = jwtUtil.generateToken_for_admin(userDetails, expirationDate);
+				String token = jwtUtil.generateToken_for_admin(admin, expirationDate);
 				structure.setData(token);
 				structure.setMessage("Login Success");
 				structure.setStatus(HttpStatus.OK.value());
@@ -161,8 +168,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 					structure.setStatus(HttpStatus.BAD_REQUEST.value());
 					return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 				}
-				List<String> weeks = Arrays.asList(String.valueOf(schedule.getRunningWeeks()).split(","));
-				schedule.setRunningWeeks(weeks);
+				String[] scheduleString = schedule.getRunningWeeks();
+
+				schedule.setRunningWeeks(scheduleString);
 				schedule.setTrain(train);
 				Schedule savedSchedule = schedule_Repository.save(schedule);
 				train.setSchedule(savedSchedule);
@@ -195,7 +203,6 @@ public class Admin_Service_Implementation implements Admin_Service {
 			if (existingStations == null) {
 				existingStations = new ArrayList<>();
 			}
-
 			for (Station station : stations) {
 				if (existingStations.stream()
 						.anyMatch(existing -> existing.getStationName().equals(station.getStationName()))) {
@@ -203,7 +210,6 @@ public class Admin_Service_Implementation implements Admin_Service {
 					structure.setStatus(HttpStatus.BAD_REQUEST.value());
 					return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 				}
-
 				station.setTrains(train);
 				existingStations.add(station);
 			}
@@ -241,6 +247,8 @@ public class Admin_Service_Implementation implements Admin_Service {
 			stations.addAll(train.getStations());
 			for (Station station : stations) {
 				station.setRoute(routes);
+				double stationPrice = calculateStationPrice(routes.getPrice(), station.getKm());
+				station.setPrice(stationPrice);
 				kms += station.getKm();
 
 			}
@@ -258,6 +266,13 @@ public class Admin_Service_Implementation implements Admin_Service {
 			structure.setStatus(HttpStatus.OK.value());
 			return new ResponseEntity<>(structure, HttpStatus.OK);
 		}
+	}
+
+	private double calculateStationPrice(double routePrice, double stationDistance) {
+		double pricePerKm = 1.11;
+		BigDecimal stationPrice = new BigDecimal(routePrice + (pricePerKm * stationDistance));
+		stationPrice = stationPrice.setScale(2, RoundingMode.HALF_UP);
+		return stationPrice.doubleValue();
 	}
 
 	private double calculatePrice(double distance) {
@@ -304,20 +319,95 @@ public class Admin_Service_Implementation implements Admin_Service {
 			newSeat.setSleeper_class(sleeperClassSeats);
 		}
 		int distributedSeatsSum = (int) (newSeat.getSecond_class() + newSeat.getSleeper_class() + newSeat.getAc1_tier()
-		+ newSeat.getAc2_tier() + newSeat.getAc3_tier());
+				+ newSeat.getAc2_tier() + newSeat.getAc3_tier());
 
 		int secondClassSeats = newSeat.getSecond_class();
 		int finalseat = secondClassSeats + (totalSeats - distributedSeatsSum);
 		newSeat.setSecond_class(finalseat);
+		int sl_max = 72;
+		int ac3_max = 72;
+		int ac2_max = 52;
+		int ac1_max = 18;
+		int second_seating_max = 108;
+
+		List<Coach> coaches = new ArrayList<>();
+
+		allocateSeatsToCoaches(newSeat.getSleeper_class(), sl_max, Seat_type.SLEEPER_CLASS, coaches);
+		allocateSeatsToCoaches(newSeat.getAc3_tier(), ac3_max, Seat_type.AC3_TIER, coaches);
+		allocateSeatsToCoaches(newSeat.getAc2_tier(), ac2_max, Seat_type.AC2_TIER, coaches);
+		allocateSeatsToCoaches(newSeat.getAc1_tier(), ac1_max, Seat_type.AC1_TIER, coaches);
+		allocateSeatsToCoaches(newSeat.getSecond_class(), second_seating_max, Seat_type.SECOND_CLASS, coaches);
+
+		List<Coach> existingCoaches = train.getCoaches();
+		if (existingCoaches == null) {
+			existingCoaches = new ArrayList<>();
+		}
+
+		for (Coach coach : coaches) {
+			if (existingCoaches.stream()
+					.anyMatch(existing -> existing.getCoachNumber().equals(coach.getCoachNumber()))) {
+				structure.setMessage("Duplicate Coach");
+				structure.setStatus(HttpStatus.BAD_REQUEST.value());
+				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+			}
+			existingCoaches.add(coach);
+		}
+
+		List<Station> stations = train.getStations();
+		for (Station station : stations) {
+			for (Coach coach : existingCoaches) {
+				Seat_type coachType = Seat_type.valueOf(coach.getCoachType());
+
+				switch (coachType) {
+				case SLEEPER_CLASS:
+					coach.setTotal_price(station.getPrice() + 100);
+					break;
+				case SECOND_CLASS:
+					coach.setTotal_price(station.getPrice() + 50);
+					break;
+				case AC3_TIER:
+					coach.setTotal_price(station.getPrice() + 150);
+					break;
+				case AC2_TIER:
+					coach.setTotal_price(station.getPrice() + 200);
+					break;
+				case AC1_TIER:
+					coach.setTotal_price(station.getPrice() + 250);
+					break;
+				}
+			}
+
+		}
+
+		train.setCoaches(existingCoaches);
 		newSeat.setTrain(train);
 		train.setSeat(newSeat);
 		seat_Repository.save(newSeat);
 		train_Repository.save(train);
+		coach_Repository.saveAll(coaches);
 
 		structure.setData2(train);
 		structure.setMessage("Seats Added Successfully");
 		structure.setStatus(HttpStatus.OK.value());
 		return new ResponseEntity<>(structure, HttpStatus.OK);
+	}
+
+	private void allocateSeatsToCoaches(int seatsRequested, int maxSeatsPerCoach, Seat_type seatType,
+			List<Coach> coaches) {
+		int remainingSeats = seatsRequested;
+		int coachNumber = 1;
+
+		while (remainingSeats > 0) {
+			Coach coach = new Coach();
+			coach.setCoachType(seatType.toString());
+			coach.setCoachNumber(seatType.toString() + coachNumber);
+			coach.setNumberOfSeats(Math.min(remainingSeats, maxSeatsPerCoach));
+
+			coaches.add(coach);
+
+			remainingSeats -= maxSeatsPerCoach;
+			coachNumber++;
+		}
 	}
 
 	@Override
@@ -326,7 +416,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setData(null);
-			structure.setMessage("UNAUTHORIZED");
+			structure.setMessage("Invalid or Expired Token, Please Login Again");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
@@ -358,7 +448,10 @@ public class Admin_Service_Implementation implements Admin_Service {
 				if (seat != null) {
 					seat_Repository.delete(seat);
 				}
-
+				List<Coach> coach = train.getCoaches();
+				if (coach != null) {
+					coach_Repository.deleteAll(coach);
+				}
 				train_Repository.delete(train);
 
 				structure.setStatus(HttpStatus.OK.value());
@@ -371,5 +464,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 				return new ResponseEntity<>(structure, HttpStatus.INTERNAL_SERVER_ERROR);
 			}
 		}
+
 	}
+
 }
