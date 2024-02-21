@@ -397,7 +397,8 @@ public class Customer_Service_Implementation implements Customer_Service {
 			case AC3_TIER:
 			case AC2_TIER:
 			case AC1_TIER:
-				structure.setData2(seat);
+				Seat seatNumber = getSeatNumberForType(seat, inputSeatType);
+				structure.setData2(seatNumber);
 				structure.setMessage("Seat Available");
 				structure.setStatus(HttpStatus.OK.value());
 				return new ResponseEntity<>(structure, HttpStatus.OK);
@@ -414,8 +415,30 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	}
 
+	private Seat getSeatNumberForType(Seat seat, Seat_type seatType) {
+		Seat selectedSeat = new Seat();
+		switch (seatType) {
+		case SECOND_CLASS:
+			selectedSeat.setSecond_class(seat.getSecond_class());
+			break;
+		case SLEEPER_CLASS:
+			selectedSeat.setSleeper_class(seat.getSleeper_class());
+			break;
+		case AC3_TIER:
+			selectedSeat.setAc3_tier(seat.getAc3_tier());
+			break;
+		case AC2_TIER:
+			selectedSeat.setAc2_tier(seat.getAc2_tier());
+			break;
+		case AC1_TIER:
+			selectedSeat.setAc1_tier(seat.getAc1_tier());
+			break;
+		}
+		return selectedSeat;
+	}
+
 	@Override
-	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token) {
+	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no) {
 		ResponseStructure<Booking> structure = new ResponseStructure<>();
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setMessage("Invalid token.");
