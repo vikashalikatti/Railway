@@ -71,8 +71,9 @@ public class Customer_Controller {
 	}
 
 	@GetMapping("/searchStation")
-	public ResponseEntity<ResponseStructure<List<Train>>> searchstation(@RequestParam String start, @RequestParam String end,
-			@RequestParam String email, @RequestHeader("Bearer") String token, @RequestParam String date) {
+	public ResponseEntity<ResponseStructure<List<Train>>> searchstation(@RequestParam String start,
+			@RequestParam String end, @RequestParam String email, @RequestHeader("Bearer") String token,
+			@RequestParam String date) {
 		return customer_Service.searchStation(start, end, email, token, date);
 	}
 
@@ -83,10 +84,10 @@ public class Customer_Controller {
 		return customer_Service.selectSeatType(seat_type, train_no, token, date, start, end);
 	}
 
-	@PostMapping("/booking/{train_NO}")
+	@PostMapping("/booking/{train_no}")
 	public ResponseEntity<ResponseStructure<Booking>> booking(@ModelAttribute List<Booking> bookings,
-			@RequestHeader String token) {
-		return customer_Service.booking(bookings, token);
+			@RequestHeader String token, @PathVariable int train_no) {
+		return customer_Service.booking(bookings, token, train_no);
 	}
 
 }

@@ -36,4 +36,5 @@ public class Seat {
 	@OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
 	private List<Booking> bookings;
 
+
 }
