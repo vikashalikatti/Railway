@@ -459,6 +459,6 @@ public class Customer_Service_Implementation implements Customer_Service {
 	public ResponseEntity<ResponseStructure<Booking>> seatbooking(List<Booking> bookings, String token, int train_no) {
 		// TODO Auto-generated method stub
 		ResponseStructure<Booking> structure = new ResponseStructure<>();
-		return new ResponseEntity<>(structure, HttpStatus.OK);
+		return new ResponseEntity<>(structure, HttpStatus.BAD_GATEWAY);
 	}
 }
