@@ -420,29 +420,21 @@ public class Customer_Service_Implementation implements Customer_Service {
 		switch (seatType) {
 		case SECOND_CLASS:
 			selectedSeat.setSecond_class(seat.getSecond_class());
-			// Set other relevant properties if needed
 			break;
 		case SLEEPER_CLASS:
 			selectedSeat.setSleeper_class(seat.getSleeper_class());
-			;
-			// Set other relevant properties if needed
 			break;
 		case AC3_TIER:
 			selectedSeat.setAc3_tier(seat.getAc3_tier());
-			// Set other relevant properties if needed
 			break;
 		case AC2_TIER:
 			selectedSeat.setAc2_tier(seat.getAc2_tier());
-			// Set other relevant properties if needed
 			break;
 		case AC1_TIER:
 			selectedSeat.setAc1_tier(seat.getAc1_tier());
-			// Set other relevant properties if needed
 			break;
-		// Handle other seat types if needed
 		}
-
-		return selectedSeat;// or throw an exception, depending on your requirements
+		return selectedSeat;
 	}
 
 	@Override
