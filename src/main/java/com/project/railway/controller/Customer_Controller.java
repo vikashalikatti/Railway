@@ -89,5 +89,11 @@ public class Customer_Controller {
 			@RequestHeader String token, @PathVariable int train_no) {
 		return customer_Service.booking(bookings, token, train_no);
 	}
+	
+	@PostMapping("/booking/{train_no}")
+	public ResponseEntity<ResponseStructure<Booking>> seatbooking(@ModelAttribute List<Booking> bookings,
+			@RequestHeader String token, @PathVariable int train_no) {
+		return customer_Service.seatbooking(bookings, token, train_no);
+	}
 
 }
