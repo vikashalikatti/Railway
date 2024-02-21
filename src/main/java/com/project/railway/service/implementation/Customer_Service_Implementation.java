@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
@@ -82,6 +83,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 		} else {
 			boolean sms = sms_Service.smsSent(customer);
 			if (sms) {
+				customer.setStatus(true);
 				customer.setRole("customer");
 				customer_Repository.save(customer);
 
@@ -93,7 +95,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 			} else {
 				structure.setData(null);
 				structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-				structure.setMessage("Failed to send OTP via SMS. Twilio status: ");
+				structure.setMessage("Failed to send OTP via SMS");
 				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(structure);
 
 			}
@@ -244,9 +246,9 @@ public class Customer_Service_Implementation implements Customer_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<Train>> searchStation(String start, String end, String email, String token,
-			String date) {
-		ResponseStructure<Train> structure = new ResponseStructure<>();
+	public ResponseEntity<ResponseStructure<List<Train>>> searchStation(String start, String end, String email,
+			String token, String date) {
+		ResponseStructure<List<Train>> structure = new ResponseStructure<>();
 		Customer customer = customer_Repository.findByEmail(email);
 
 		if (!jwtUtil.isValidToken(token)) {
@@ -263,6 +265,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 					structure.setStatus(HttpStatus.NOT_FOUND.value());
 					return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
 				} else {
+					List<Train> matchingTrains = new ArrayList<>();
 
 					for (Station station : boardingStations) {
 						Train train = station.getTrains();
@@ -274,22 +277,29 @@ public class Customer_Service_Implementation implements Customer_Service {
 						Schedule schedule = train.getSchedule();
 						String[] week = schedule.getRunningWeeks();
 						String dayOfWeek = localDate.getDayOfWeek().toString().toLowerCase();
+
 						if (localDate.isBefore(LocalDate.now())) {
 							structure.setMessage("Specified date is in the past.");
 							structure.setStatus(HttpStatus.BAD_REQUEST.value());
 							return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 						}
+
 						if (isRunningOnRoute
 								&& Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
-							structure.setData2(train);
-							structure.setMessage("List Of Trains " + start + " to " + end);
-							structure.setStatus(HttpStatus.OK.value());
-							return new ResponseEntity<>(structure, HttpStatus.OK);
+							matchingTrains.add(train);
 						}
 					}
-					structure.setMessage("No matching trains found for the specified route.");
-					structure.setStatus(HttpStatus.NOT_FOUND.value());
-					return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+
+					if (!matchingTrains.isEmpty()) {
+						structure.setData2(matchingTrains);
+						structure.setMessage("List Of Trains " + start + " to " + end);
+						structure.setStatus(HttpStatus.OK.value());
+						return new ResponseEntity<>(structure, HttpStatus.OK);
+					} else {
+						structure.setMessage("No matching trains found for the specified route.");
+						structure.setStatus(HttpStatus.NOT_FOUND.value());
+						return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+					}
 				}
 			} else {
 				structure.setMessage("Customer not found.");
