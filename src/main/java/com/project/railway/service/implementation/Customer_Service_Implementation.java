@@ -454,4 +454,10 @@ public class Customer_Service_Implementation implements Customer_Service {
 			return new ResponseEntity<>(structure, HttpStatus.OK);
 		}
 	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Booking>> seatbooking(List<Booking> bookings, String token, int train_no) {
+		// TODO Auto-generated method stub
+		return null;
+	}
 }
