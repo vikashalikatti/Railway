@@ -38,4 +38,6 @@ public interface Customer_Service {
 
 	ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token);
 
+
+
 }

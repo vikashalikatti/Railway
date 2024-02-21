@@ -31,6 +31,7 @@ import jakarta.mail.internet.ParseException;
 @RestController
 @RequestMapping("customer")
 @CrossOrigin
+
 public class Customer_Controller {
 
 	@Autowired
@@ -88,5 +89,5 @@ public class Customer_Controller {
 			@RequestHeader String token) {
 		return customer_Service.booking(bookings, token);
 	}
-
+	
 }

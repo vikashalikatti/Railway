@@ -80,8 +80,9 @@ public class Customer_Service_Implementation implements Customer_Service {
 			structure.setMessage("Email or Mobile should not be repeated");
 			return ResponseEntity.badRequest().body(structure);
 		} else {
-			boolean sms = sms_Service.smsSent(customer);
-			if (sms) {
+//			boolean sms = sms_Service.smsSent(customer);
+			if (true) {
+				customer.setStatus(true);
 				customer.setRole("customer");
 				customer_Repository.save(customer);
 
@@ -421,4 +422,6 @@ public class Customer_Service_Implementation implements Customer_Service {
 			return new ResponseEntity<>(structure, HttpStatus.OK);
 		}
 	}
+
+
 }
