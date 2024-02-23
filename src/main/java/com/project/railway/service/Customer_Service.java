@@ -34,8 +34,10 @@ public interface Customer_Service {
 	ResponseEntity<ResponseStructure<List<Train>>> searchStation(String start, String end, String email, String token,
 			String date);
 
-	ResponseEntity<ResponseStructure<Seat>> selectSeatType(String seat_type, int train_no, String token, String date, String start, String end);
+	ResponseEntity<ResponseStructure<Seat>> selectSeatType(String seat_type, int train_no, String token, String date,
+			String start, String end);
 
-	ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token,int train_no);
+	ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no,
+			String seat_type);
 
 }

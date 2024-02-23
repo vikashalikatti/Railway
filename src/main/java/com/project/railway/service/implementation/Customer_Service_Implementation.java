@@ -438,7 +438,8 @@ public class Customer_Service_Implementation implements Customer_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no) {
+	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no,
+			String seat_type) {
 		ResponseStructure<Booking> structure = new ResponseStructure<>();
 		Train train = train_Repository.findByTrainNumber(train_no);
 		if (!jwtUtil.isValidToken(token)) {
@@ -448,10 +449,14 @@ public class Customer_Service_Implementation implements Customer_Service {
 		} else {
 			if (train != null) {
 				for (Booking booking : bookings) {
+					Seat seat = train.getSeat();
+					seat_type = seat_type.toUpperCase();
+					Seat_type inputSeatType;
 					System.out.println("Name" + booking.getPassengerName());
 					System.out.println("phone Number" + booking.getContactNumber());
 				}
 				structure.setMessage("booking done");
+				// implement razopay gateway here only
 				structure.setStatus(HttpStatus.OK.value());
 				return new ResponseEntity<>(structure, HttpStatus.OK);
 			} else {
