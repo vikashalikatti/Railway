@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -85,8 +86,8 @@ public class Customer_Controller {
 	}
 
 	@PostMapping("/booking/{train_no}")
-	public ResponseEntity<ResponseStructure<Booking>> booking(@ModelAttribute List<Booking> bookings,
-			@RequestHeader String token, @PathVariable int train_no) {
+	public ResponseEntity<ResponseStructure<Booking>> booking(@RequestBody List<Booking> bookings,
+			@RequestHeader("Bearer") String token, @PathVariable int train_no) {
 		return customer_Service.booking(bookings, token, train_no);
 	}
 

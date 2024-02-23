@@ -440,18 +440,25 @@ public class Customer_Service_Implementation implements Customer_Service {
 	@Override
 	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no) {
 		ResponseStructure<Booking> structure = new ResponseStructure<>();
+		Train train = train_Repository.findByTrainNumber(train_no);
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setMessage("Invalid token.");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
-			for (Booking booking : bookings) {
-				System.out.println(booking);
+			if (train != null) {
+				for (Booking booking : bookings) {
+					System.out.println("Name" + booking.getPassengerName());
+					System.out.println("phone Number" + booking.getContactNumber());
+				}
+				structure.setMessage("booking done");
+				structure.setStatus(HttpStatus.OK.value());
+				return new ResponseEntity<>(structure, HttpStatus.OK);
+			} else {
+				structure.setMessage("Train Not Found");
+				structure.setStatus(HttpStatus.BAD_REQUEST.value());
+				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 			}
-			structure.setData(token);
-			structure.setMessage("booking done");
-			structure.setStatus(HttpStatus.OK.value());
-			return new ResponseEntity<>(structure, HttpStatus.OK);
 		}
 	}
 }
