@@ -18,8 +18,6 @@ import lombok.RequiredArgsConstructor;
 @EnableMethodSecurity
 public class SecurityConfiguration {
 
-
-
 	@Bean
 	BCryptPasswordEncoder bCryptPasswordEncoder() {
 		return new BCryptPasswordEncoder();
@@ -28,7 +26,9 @@ public class SecurityConfiguration {
 	@Bean
 	SecurityFilterChain filterChain(HttpSecurity security) throws Exception {
 		security.cors().and().csrf().disable()
-				.authorizeHttpRequests(request -> request.requestMatchers("**").permitAll().anyRequest().authenticated());
+				.authorizeHttpRequests(request -> request
+						.requestMatchers("/admin/**", "/customer/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
+						.anyRequest().authenticated());
 		return security.build();
 	}
 
