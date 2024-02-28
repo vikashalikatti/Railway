@@ -452,6 +452,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 					Seat seat = train.getSeat();
 					seat_type = seat_type.toUpperCase();
 					Seat_type inputSeatType;
+//					if(seat_type.equals(inputSeatType))
 					System.out.println("Name" + booking.getPassengerName());
 					System.out.println("phone Number" + booking.getContactNumber());
 				}
