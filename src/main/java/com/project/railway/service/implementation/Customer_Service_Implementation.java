@@ -325,95 +325,95 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Override
 	public ResponseEntity<ResponseStructure<Seat>> selectSeatType(String seatType, int trainNo, String token,
-			String date, String start, String end) {
-		ResponseStructure<Seat> structure = new ResponseStructure<>();
-		Train train = train_Repository.findByTrainNumber(trainNo);
+	        String date, String start, String end) {
+	    ResponseStructure<Seat> structure = new ResponseStructure<>();
+	    Train train = train_Repository.findByTrainNumber(trainNo);
 
-		if (!jwtUtil.isValidToken(token)) {
-			structure.setMessage("Invalid token.");
-			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
-			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
-		}
+	    if (!jwtUtil.isValidToken(token)) {
+	        structure.setMessage("Invalid token.");
+	        structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+	        return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+	    }
 
-		if (train == null) {
-			structure.setMessage("Train not found");
-			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-		}
+	    if (train == null) {
+	        structure.setMessage("Train not found");
+	        structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	        return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	    }
 
-		List<Station> boardingStations = station_Repository.findByStationName(start);
-		List<Station> destinationStations = station_Repository.findByStationName(end);
+	    List<Station> boardingStations = station_Repository.findByStationName(start);
+	    List<Station> destinationStations = station_Repository.findByStationName(end);
 
-		if (boardingStations.isEmpty() || destinationStations.isEmpty()) {
-			structure.setMessage("No matching stations found.");
-			structure.setStatus(HttpStatus.NOT_FOUND.value());
-			return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
-		}
-		for (Station boardingStation : boardingStations) {
-			LocalTime departureTime = boardingStation.getDepartureTime();
-			LocalTime currentTime = LocalTime.now();
+	    if (boardingStations.isEmpty() || destinationStations.isEmpty()) {
+	        structure.setMessage("No matching stations found.");
+	        structure.setStatus(HttpStatus.NOT_FOUND.value());
+	        return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+	    }
 
-			DateTimeFormatter formatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-			String formattedDepartureTime = departureTime.format(formatter);
-			String formattedCurrentTime = currentTime.format(formatter);
+	    DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("M/d/yyyy");
+	    LocalDate localDate = LocalDate.parse(date, dateFormatter);
 
-			if (currentTime.isAfter(departureTime)) {
-				structure.setMessage("Train Departed");
-				structure.setStatus(HttpStatus.NOT_FOUND.value());
-				return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
-			}
-		}
+	    if (localDate.isBefore(LocalDate.now())) {
+	        structure.setMessage("Specified date is in the past.");
+	        structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	        return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	    }
 
-		Seat seat = train.getSeat();
-		seatType = seatType.toUpperCase();
-		Seat_type inputSeatType;
-		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("M/d/yyyy");
-		LocalDate localDate = LocalDate.parse(date, formatter);
+	    for (Station boardingStation : boardingStations) {
+	        LocalTime departureTime = boardingStation.getDepartureTime();
+	        LocalDateTime departureDateTime = LocalDateTime.of(localDate, departureTime);
+	        LocalDateTime currentDateTime = LocalDateTime.now();
 
-		if (localDate.isBefore(LocalDate.now())) {
-			structure.setMessage("Specified date is in the past.");
-			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-		}
+	        if (currentDateTime.isAfter(departureDateTime)) {
+	            structure.setMessage("Train Departed");
+	            structure.setStatus(HttpStatus.NOT_FOUND.value());
+	            return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+	        }
+	    }
 
-		Schedule schedule = train.getSchedule();
-		String[] week = schedule.getRunningWeeks();
-		String dayOfWeek = localDate.getDayOfWeek().toString().toLowerCase();
+	    Seat seat = train.getSeat();
+	    seatType = seatType.toUpperCase();
+	    Seat_type inputSeatType;
 
-		boolean isRunningOnRoute = isTrainRunningOnRoute(train.getStations(), start, end);
+	    Schedule schedule = train.getSchedule();
+	    String[] week = schedule.getRunningWeeks();
+	    String dayOfWeek = localDate.getDayOfWeek().toString().toLowerCase();
 
-		if (isRunningOnRoute && Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
-			try {
-				inputSeatType = Seat_type.valueOf(seatType);
-			} catch (IllegalArgumentException e) {
-				structure.setMessage("Invalid Seat Type");
-				structure.setStatus(HttpStatus.BAD_REQUEST.value());
-				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-			}
+	    boolean isRunningOnRoute = isTrainRunningOnRoute(train.getStations(), start, end);
 
-			switch (inputSeatType) {
-			case SECOND_CLASS:
-			case SLEEPER_CLASS:
-			case AC3_TIER:
-			case AC2_TIER:
-			case AC1_TIER:
-				Seat seatNumber = getSeatNumberForType(seat, inputSeatType);
-				structure.setData2(seatNumber);
-				structure.setMessage("Seat Available");
-				structure.setStatus(HttpStatus.OK.value());
-				return new ResponseEntity<>(structure, HttpStatus.OK);
-			default:
-				structure.setMessage("No Seat Available");
-				structure.setStatus(HttpStatus.BAD_REQUEST.value());
-				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-			}
-		} else {
-			structure.setMessage("No matching trains found for the specified route.");
-			structure.setStatus(HttpStatus.NOT_FOUND.value());
-			return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
-		}
+	    if (isRunningOnRoute && Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
+	        try {
+	            inputSeatType = Seat_type.valueOf(seatType);
+	        } catch (IllegalArgumentException e) {
+	            structure.setMessage("Invalid Seat Type");
+	            structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	            return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	        }
 
+	        switch (inputSeatType) {
+	            case SECOND_CLASS:
+	            case SLEEPER_CLASS:
+	            case AC3_TIER:
+	            case AC2_TIER:
+	            case AC1_TIER:
+	                Seat seatNumber = getSeatNumberForType(seat, inputSeatType);
+	                structure.setData2(seatNumber);
+	                structure.setMessage("Seat Available");
+	                structure.setStatus(HttpStatus.OK.value());
+	                return new ResponseEntity<>(structure, HttpStatus.OK);
+	            default:
+	                structure.setMessage("No Seat Available");
+	                structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	                return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	        }
+	    } else {
+	        structure.setMessage("No matching trains found for the specified route.");
+	        structure.setStatus(HttpStatus.NOT_FOUND.value());
+	        return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
+	    }
 	}
+
+
 
 	private Seat getSeatNumberForType(Seat seat, Seat_type seatType) {
 		Seat selectedSeat = new Seat();

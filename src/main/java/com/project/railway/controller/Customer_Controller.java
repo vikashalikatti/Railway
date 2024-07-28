@@ -78,10 +78,10 @@ public class Customer_Controller {
 		return customer_Service.searchStation(start, end, email, token, date);
 	}
 
-	@GetMapping("/select_class/{train_no}")
+	@GetMapping("/select_class/{train_no}/{start}/{end}")
 	public ResponseEntity<ResponseStructure<Seat>> selectSeatType(@RequestParam String seat_type,
 			@PathVariable int train_no, @RequestHeader("Bearer") String token, @RequestParam String date,
-			@RequestParam String start, @RequestParam String end) {
+			@PathVariable String start, @PathVariable String end) {
 		return customer_Service.selectSeatType(seat_type, train_no, token, date, start, end);
 	}
 
