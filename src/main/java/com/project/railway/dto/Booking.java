@@ -37,7 +37,7 @@ public class Booking {
 	private String address;
 	private String seat_type;
 	private int seat_No;
-	
+	private LocalDateTime journey_datetime;
 	private LocalDateTime bookingTime;
 
 	@ManyToOne

@@ -66,6 +66,8 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	Station_Repository station_Repository;
+	
+
 
 	public ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws Exception {
 
@@ -439,7 +441,7 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Override
 	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no,
-			String seat_type) {
+			String seat_type,String book_date) {
 		ResponseStructure<Booking> structure = new ResponseStructure<>();
 		Train train = train_Repository.findByTrainNumber(train_no);
 		if (!jwtUtil.isValidToken(token)) {
@@ -448,10 +450,36 @@ public class Customer_Service_Implementation implements Customer_Service {
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		} else {
 			if (train != null) {
+				boolean seatAvailable = false;
 				for (Booking booking : bookings) {
 					Seat seat = train.getSeat();
 					seat_type = seat_type.toUpperCase();
 					Seat_type inputSeatType;
+					try {
+	                    inputSeatType = Seat_type.valueOf(seat_type);
+	                } catch (IllegalArgumentException e) {
+	                    structure.setMessage("Invalid seat type.");
+	                    structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	                    return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	                }
+					if (seat.getSeatType() == inputSeatType && seat.isAvailable()) {
+	                    seatAvailable = true;
+	                    // Assuming you have a method to reserve the seat and update its status
+	                    seat.reserve();
+	                    booking.setSeat(seat);
+	                    booking.setTrain(train);
+	                    booking.setBookDate(book_date);
+	                    // Save booking to the repository
+	                    booking_Repository.save(booking);
+
+	                    System.out.println("Passenger Name: " + booking.getPassengerName());
+	                    System.out.println("Phone Number: " + booking.getContactNumber());
+	                } else {
+	                    structure.setMessage("Requested seat type is not available.");
+	                    structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	                    return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	                }
+	            }
 //					if(seat_type.equals(inputSeatType))
 					System.out.println("Name" + booking.getPassengerName());
 					System.out.println("phone Number" + booking.getContactNumber());

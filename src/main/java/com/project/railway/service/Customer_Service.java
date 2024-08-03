@@ -38,6 +38,6 @@ public interface Customer_Service {
 			String start, String end);
 
 	ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no,
-			String seat_type);
+			String seat_type,String book_date);
 
 }
