@@ -34,6 +34,7 @@ import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Seat_type;
 import com.project.railway.helper.Sms_Service;
+import com.project.railway.repository.Book_Repository;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.repository.Station_Repository;
 import com.project.railway.repository.Train_Repository;
@@ -66,6 +67,9 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	Station_Repository station_Repository;
+	
+	@Autowired
+	Book_Repository booking_Repository ;
 	
 
 
