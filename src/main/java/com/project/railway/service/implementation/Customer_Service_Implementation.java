@@ -445,58 +445,78 @@ public class Customer_Service_Implementation implements Customer_Service {
 
 	@Override
 	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no,
-			String seat_type,String book_date) {
-		ResponseStructure<Booking> structure = new ResponseStructure<>();
-		Train train = train_Repository.findByTrainNumber(train_no);
-		if (!jwtUtil.isValidToken(token)) {
-			structure.setMessage("Invalid token.");
-			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
-			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
-		} else {
-			if (train != null) {
-				boolean seatAvailable = false;
-				for (Booking booking : bookings) {
-					Seat seat = train.getSeat();
-					seat_type = seat_type.toUpperCase();
-					Seat_type inputSeatType;
-					try {
-	                    inputSeatType = Seat_type.valueOf(seat_type);
-	                } catch (IllegalArgumentException e) {
-	                    structure.setMessage("Invalid seat type.");
-	                    structure.setStatus(HttpStatus.BAD_REQUEST.value());
-	                    return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-	                }
-					if (seat.getSeatType() == inputSeatType && seat.isAvailable()) {
+	        String seat_type, String book_date) {
+	    ResponseStructure<Booking> structure = new ResponseStructure<>();
+	    Train train = train_Repository.findByTrainNumber(train_no);
+	    if (!jwtUtil.isValidToken(token)) {
+	        structure.setMessage("Invalid token.");
+	        structure.setStatus(HttpStatus.UNAUTHORIZED.value());
+	        return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
+	    } else {
+	        if (train != null) {
+	            if (train.getCoaches() == null || train.getCoaches().size() == 0) {
+	                structure.setMessage("No coaches available for booking.");
+	                structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	                return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	            }
+	            
+	            boolean seatAvailable = false;
+	            Seat seat = train.getSeat();
+	            seat_type = seat_type.toUpperCase();
+	            Seat_type inputSeatType;
+
+	            try {
+	                inputSeatType = Seat_type.valueOf(seat_type);
+	            } catch (IllegalArgumentException e) {
+	                structure.setMessage("Invalid seat type.");
+	                structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	                return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	            }
+
+	            if (seat.isAvailable(inputSeatType)) {
+	                for (Booking booking : bookings) {
 	                    seatAvailable = true;
-	                    // Assuming you have a method to reserve the seat and update its status
-	                    seat.reserve();
-	                    booking.setSeat(seat);
+	                    seat.reserve(inputSeatType);
+	                    booking.setSeat_No(seat);
 	                    booking.setTrain(train);
-	                    booking.setBookDate(book_date);
-	                    // Save booking to the repository
+	                    booking.setBookingTime(book_date);
 	                    booking_Repository.save(booking);
 
 	                    System.out.println("Passenger Name: " + booking.getPassengerName());
 	                    System.out.println("Phone Number: " + booking.getContactNumber());
-	                } else {
-	                    structure.setMessage("Requested seat type is not available.");
-	                    structure.setStatus(HttpStatus.BAD_REQUEST.value());
-	                    return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 	                }
+
+	                if (seatAvailable) {
+	                    structure.setMessage("Booking done. Proceed to payment.");
+	                    structure.setStatus(HttpStatus.OK.value());
+	                    // Integrate Razorpay gateway here
+	                    // Example: initiateRazorpayPayment(structure);
+	                    return new ResponseEntity<>(structure, HttpStatus.OK);
+	                }
+	            } else {
+	                structure.setMessage("Requested seat type is not available.");
+	                structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	                return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 	            }
-//					if(seat_type.equals(inputSeatType))
-					System.out.println("Name" + booking.getPassengerName());
-					System.out.println("phone Number" + booking.getContactNumber());
-				}
-				structure.setMessage("booking done");
-				// implement razopay gateway here only
-				structure.setStatus(HttpStatus.OK.value());
-				return new ResponseEntity<>(structure, HttpStatus.OK);
-			} else {
-				structure.setMessage("Train Not Found");
-				structure.setStatus(HttpStatus.BAD_REQUEST.value());
-				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-			}
-		}
+	        } else {
+	            structure.setMessage("Train Not Found");
+	            structure.setStatus(HttpStatus.BAD_REQUEST.value());
+	            return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+	        }
+	    }
 	}
+
+	// Assuming you have a method to initiate Razorpay payment
+	private void initiateRazorpayPayment(ResponseStructure<Booking> structure) {
+	    // Implement Razorpay payment gateway integration here
+	    // Example:
+	    // RazorpayClient razorpayClient = new RazorpayClient("api_key", "api_secret");
+	    // JSONObject orderRequest = new JSONObject();
+	    // orderRequest.put("amount", amount); // amount in the smallest currency unit
+	    // orderRequest.put("currency", "INR");
+	    // orderRequest.put("receipt", "order_receipt_id");
+	    // Order order = razorpayClient.orders.create(orderRequest);
+	    // structure.setPaymentOrderId(order.get("id"));
+	}
+
 }
