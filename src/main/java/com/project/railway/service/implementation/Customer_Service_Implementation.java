@@ -477,9 +477,9 @@ public class Customer_Service_Implementation implements Customer_Service {
 	                for (Booking booking : bookings) {
 	                    seatAvailable = true;
 	                    seat.reserve(inputSeatType);
-	                    booking.setSeat_No(seat);
-	                    booking.setTrain(train);
-	                    booking.setBookingTime(book_date);
+//	                    booking.setSeat_No(seat);
+//	                    booking.setTrain(train);
+//	                    booking.setBookingTime(book_date);
 	                    booking_Repository.save(booking);
 
 	                    System.out.println("Passenger Name: " + booking.getPassengerName());
