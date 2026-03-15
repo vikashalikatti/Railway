@@ -1,6 +1,7 @@
 package com.project.railway.dto;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
@@ -12,6 +13,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.SequenceGenerator;
@@ -38,7 +40,10 @@ public class Booking {
 	private String seat_type;
 	private int seat_No;
 	private LocalDateTime journey_datetime;
-	private LocalDateTime bookingTime;
+	private String bookingTime;
+	@ManyToOne
+	@JoinColumn(name = "coach_id")
+	private Coach coach;
 
 	@ManyToOne
 	private Train train;

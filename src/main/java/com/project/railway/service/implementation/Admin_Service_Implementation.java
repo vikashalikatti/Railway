@@ -344,13 +344,17 @@ public class Admin_Service_Implementation implements Admin_Service {
 		}
 
 		for (Coach coach : coaches) {
-			if (existingCoaches.stream()
-					.anyMatch(existing -> existing.getCoachNumber().equals(coach.getCoachNumber()))) {
-				structure.setMessage("Duplicate Coach");
-				structure.setStatus(HttpStatus.BAD_REQUEST.value());
-				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-			}
-			existingCoaches.add(coach);
+
+		    coach.setTrain(train);   // add this line
+
+		    if (existingCoaches.stream()
+		            .anyMatch(existing -> existing.getCoachNumber().equals(coach.getCoachNumber()))) {
+		        structure.setMessage("Duplicate Coach");
+		        structure.setStatus(HttpStatus.BAD_REQUEST.value());
+		        return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		    }
+
+		    existingCoaches.add(coach);
 		}
 
 		List<Station> stations = train.getStations();
@@ -392,7 +396,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 		return new ResponseEntity<>(structure, HttpStatus.OK);
 	}
 
-	private void allocateSeatsToCoaches(int seatsRequested, int maxSeatsPerCoach, Seat_type seatType,
+	public void allocateSeatsToCoaches(int seatsRequested, int maxSeatsPerCoach, Seat_type seatType,
 			List<Coach> coaches) {
 		int remainingSeats = seatsRequested;
 		int coachNumber = 1;
