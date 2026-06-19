@@ -46,7 +46,7 @@ import freemarker.template.TemplateNotFoundException;
 import jakarta.mail.internet.ParseException;
 
 @Service
-public abstract class Customer_Service_Implementation implements Customer_Service {
+public  class Customer_Service_Implementation implements Customer_Service {
 
 	@Autowired
 	private Customer_Repository customer_Repository;
@@ -442,6 +442,13 @@ public abstract class Customer_Service_Implementation implements Customer_Servic
 			break;
 		}
 		return selectedSeat;
+	}
+
+	@Override
+	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no,
+			String seat_type, String book_date) {
+		// TODO Auto-generated method stub
+		return null;
 	}
 
 
