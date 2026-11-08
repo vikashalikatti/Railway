@@ -24,17 +24,16 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.project.railway.dto.Booking;
-import com.project.railway.dto.Coach;
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Schedule;
-import com.project.railway.dto.Seat;
 import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
+import com.project.railway.helper.AccountRules;
 import com.project.railway.helper.JwtUtil;
+import com.project.railway.helper.LoginAttemptService;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Seat_type;
-import com.project.railway.helper.Sms_Service;
+import com.project.railway.helper.EmailOtpService;
 import com.project.railway.repository.Book_Repository;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.repository.Station_Repository;
@@ -61,7 +60,7 @@ public  class Customer_Service_Implementation implements Customer_Service {
 	JwtUtil jwtUtil;
 
 	@Autowired
-	Sms_Service sms_Service;
+	EmailOtpService emailOtpService;
 
 	@Autowired
 	Train_Repository train_Repository;
@@ -74,189 +73,266 @@ public  class Customer_Service_Implementation implements Customer_Service {
 	
 
 
-	public ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws Exception {
+	/** A real BCrypt hash, checked when the account doesn't exist so a wrong email takes as long as a wrong password */
+	private volatile String dummyHash;
 
+	@Autowired
+	private LoginAttemptService attempts;
+
+	@Override
+	public ResponseEntity<ResponseStructure<Customer>> signup(Customer customer, MultipartFile pic) throws Exception {
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
 
-		customer.setPassword(encoder.encode(customer.getPassword()));
-		byte[] picture = new byte[pic.getBytes().length];
-		pic.getInputStream().read(picture);
-		customer.setPhoto(picture);
-		if (customer_Repository.findByEmail(customer.getEmail()) != null
-				|| customer_Repository.findByMobile(customer.getMobile()) != null) {
-			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			structure.setMessage("Email or Mobile should not be repeated");
-			return ResponseEntity.badRequest().body(structure);
-		} else {
-			boolean sms = sms_Service.smsSent(customer);
-			if (sms) {
-				customer.setStatus(true);
-				customer.setRole("customer");
-				customer_Repository.save(customer);
-
-				structure.setData2(customer);
-				structure.setStatus(HttpStatus.CREATED.value());
-				structure.setMessage("OTP sent successfully via SMS");
-
-				return ResponseEntity.ok(structure);
-			} else {
-				structure.setData(null);
-				structure.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
-				structure.setMessage("Failed to send OTP via SMS");
-				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(structure);
-
-			}
+		// Same checks as the sign-up form, for requests that don't come from it
+		String problem = AccountRules.personName(customer.getName());
+		if (problem == null) problem = AccountRules.email(customer.getEmail());
+		if (problem == null) problem = AccountRules.newPassword(customer.getPassword());
+		if (problem == null) problem = AccountRules.mobile(customer.getMobile());
+		if (problem == null) problem = AccountRules.age(customer.getAge());
+		if (problem == null) problem = AccountRules.gender(customer.getGender());
+		if (problem == null) problem = AccountRules.address(customer.getAddress());
+		if (problem == null) problem = AccountRules.photo(pic);
+		if (problem != null) {
+			return reply(structure, HttpStatus.BAD_REQUEST, problem);
 		}
+		String email = customer.getEmail().trim();
+		if (customer_Repository.findByEmail(email) != null || customer_Repository.findByMobile(customer.getMobile()) != null) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "Email or Mobile should not be repeated");
+		}
+
+		// Only the fields a person may choose are kept; everything else is set here, so a request
+		// can't pick its own id (overwriting another account), role, verified flag or OTP
+		Customer account = new Customer();
+		account.setName(customer.getName().trim());
+		account.setEmail(email);
+		account.setPassword(encoder.encode(customer.getPassword()));
+		account.setMobile(customer.getMobile());
+		account.setAge(customer.getAge());
+		account.setGender(customer.getGender().trim());
+		account.setAddress(customer.getAddress().trim());
+		account.setPhoto(pic.getBytes());
+		account.setStatus(false); // becomes true once the email OTP is verified
+		account.setRole("customer");
+		account.setTokenVersion(0);
+		account.setOtpAttempts(0);
+
+		attempts.emailCooldown(email);
+		if (emailOtpService.sendOtp(account, EmailOtpService.Purpose.SIGNUP)) {
+			customer_Repository.save(account);
+			// The account (which holds the OTP) is not sent back, so the code can only come from the email
+			structure.setStatus(HttpStatus.CREATED.value());
+			structure.setMessage("OTP sent to " + email);
+			return ResponseEntity.ok(structure);
+		}
+		return reply(structure, HttpStatus.INTERNAL_SERVER_ERROR,
+				"Couldn't send the OTP email. Check the email address and try again.");
 	}
 
 	@Override
 	public ResponseEntity<ResponseStructure<Customer>> login(String email, String password)
 			throws TemplateNotFoundException, MalformedTemplateNameException, ParseException, IOException {
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
-		Customer customer = customer_Repository.findByEmail(email);
-		if (customer == null) {
-			structure.setData(null);
-			structure.setMessage("No User, Create Your Account");
-			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-		} else {
-
-			UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(email, password);
-
-			Authentication authentication = authenticationManager.authenticate(authToken);
-			SecurityContextHolder.getContext().setAuthentication(authentication);
-
-			UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-
-			if (userDetails != null) {
-				long expirationMillis = System.currentTimeMillis() + 3600000; // 1 hour in milliseconds
-				Date expirationDate = new Date(expirationMillis);
-				String token = jwtUtil.generateToken_for_customer(customer, expirationDate);
-				structure.setData(token);
-				structure.setMessage("Login Success");
-				structure.setStatus(HttpStatus.OK.value());
-			}
-			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		String account = "customer:" + (email == null ? "" : email.trim());
+		long wait = attempts.secondsLocked(account);
+		if (wait > 0) {
+			return reply(structure, HttpStatus.TOO_MANY_REQUESTS, LoginAttemptService.waitMessage(wait));
 		}
+		Customer customer = email == null ? null : customer_Repository.findByEmail(email.trim());
+		boolean ok = customer != null && password != null && encoder.matches(password, customer.getPassword());
+		if (customer == null && password != null) {
+			if (dummyHash == null) {
+				dummyHash = encoder.encode("no-such-account-0");
+			}
+			encoder.matches(password, dummyHash); // same delay either way
+		}
+		if (!ok) {
+			attempts.failed(account);
+			return reply(structure, HttpStatus.BAD_REQUEST, "Wrong email or password");
+		}
+		attempts.succeeded(account);
+		if (!customer.isStatus()) {
+			return reply(structure, HttpStatus.BAD_REQUEST,
+					"Email not verified. Enter the OTP we emailed you, or request a new one.");
+		}
+		String token = jwtUtil.generateToken_for_customer(customer,
+				new java.util.Date(System.currentTimeMillis() + JwtUtil.LOGIN_TTL_MS));
+		structure.setData(token);
+		return reply(structure, HttpStatus.OK, "Login Success");
+	}
+
+	/** Ends this session, or every session of this passenger when everywhere is true */
+	@Override
+	public ResponseEntity<ResponseStructure<Customer>> logout(String token, boolean everywhere) {
+		ResponseStructure<Customer> structure = new ResponseStructure<>();
+		String[] subject = jwtUtil.getSubject(token);
+		if (subject != null && everywhere) {
+			Customer customer = customer_Repository.findByEmail(subject[0]);
+			if (customer != null) {
+				customer.setTokenVersion(JwtUtil.version(customer.getTokenVersion()) + 1);
+				customer_Repository.save(customer);
+			}
+		}
+		jwtUtil.logout(token);
+		return reply(structure, HttpStatus.OK, everywhere ? "Logged out on every device" : "Logged out");
 	}
 
 	@Override
 	public ResponseEntity<ResponseStructure<Customer>> verifyotp(String email, int otp) {
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
-		Customer customer = customer_Repository.findByEmail(email);
-		if (customer != null && customer.getOtp() == otp) {
-			if (sms_Service.isOtpValid(customer)) {
-				customer.setStatus(true);
-				customer.setOtp(0);
-				customer.setSetOtpGeneratedTime(null);
-				customer_Repository.save(customer);
-				structure.setData2(customer);
-				structure.setStatus(HttpStatus.OK.value());
-				structure.setMessage("OTP Verified Successfully");
-				return new ResponseEntity<>(structure, HttpStatus.OK);
-			} else {
-				structure.setData(null);
-				structure.setStatus(HttpStatus.BAD_REQUEST.value());
-				structure.setMessage("OTP has expired.");
-				return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-			}
-		} else {
-			structure.setData(null);
-			structure.setMessage("Otp Not Verified Sucessfully");
-			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
+		String problem = checkOtp(email, otp);
+		if (problem != null) {
+			return reply(structure, problem.startsWith("Too many") ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.BAD_REQUEST,
+					problem);
 		}
+		Customer customer = customer_Repository.findByEmail(email.trim());
+		customer.setStatus(true);
+		customer_Repository.save(customer);
+		return reply(structure, HttpStatus.OK, "OTP Verified Successfully");
+	}
+
+	/**
+	 * Checks an OTP and uses it up when it is right. Returns null when it is right, or why not.
+	 * 5 wrong codes cancel the OTP (a new one has to be requested), and the account's OTP checks
+	 * are locked for 15 minutes, so the 6-digit code can't be guessed.
+	 */
+	private String checkOtp(String email, int otp) {
+		String account = "otp:" + (email == null ? "" : email.trim());
+		long wait = attempts.secondsLocked(account);
+		if (wait > 0) {
+			return LoginAttemptService.waitMessage(wait);
+		}
+		Customer customer = email == null ? null : customer_Repository.findByEmail(email.trim());
+		if (customer == null || customer.getOtp() == 0) {
+			attempts.failed(account);
+			return "Incorrect OTP. Request a new one if you don't have it.";
+		}
+		if (!emailOtpService.isOtpValid(customer)) {
+			customer.setOtp(0);
+			customer_Repository.save(customer);
+			return "OTP has expired.";
+		}
+		if (customer.getOtp() != otp) {
+			attempts.failed(account);
+			int tries = (customer.getOtpAttempts() == null ? 0 : customer.getOtpAttempts()) + 1;
+			customer.setOtpAttempts(tries);
+			if (tries >= 5) {
+				customer.setOtp(0); // this code can't be guessed any further
+				customer.setOtpAttempts(0);
+				customer_Repository.save(customer);
+				return "Incorrect OTP entered too many times. Request a new OTP.";
+			}
+			customer_Repository.save(customer);
+			return "Incorrect OTP. " + (5 - tries) + (5 - tries == 1 ? " try" : " tries") + " left.";
+		}
+		attempts.succeeded(account);
+		customer.setOtp(0);
+		customer.setOtpAttempts(0);
+		customer.setSetOtpGeneratedTime(null);
+		customer_Repository.save(customer);
+		return null;
 	}
 
 	@Override
 	public ResponseEntity<ResponseStructure<Customer>> forgot_passowrd(String email) throws Exception {
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
-		Customer customer = customer_Repository.findByEmail(email);
+		Customer customer = email == null ? null : customer_Repository.findByEmail(email.trim());
 		if (customer == null) {
-			structure.setData2(customer);
-			structure.setMessage(customer.getEmail() + "Email doesn't exits,create account first");
-			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-		} else {
-			int otp = new Random().nextInt(100000, 999999);
-			customer.setOtp(otp);
-			customer.setSetOtpGeneratedTime(LocalDateTime.now());
-
-			if (sms_Service.smsSent(customer)) {
-				customer_Repository.save(customer);
-				structure.setData2(customer);
-				structure.setStatus(HttpStatus.OK.value());
-				structure.setMessage(customer.getEmail() + "OTP send succesfull,check once");
-				return new ResponseEntity<>(structure, HttpStatus.OK);
-			} else {
-				structure.setData(null);
-				structure.setStatus(HttpStatus.NOT_ACCEPTABLE.value());
-				structure.setMessage("Something went Wrong, Check email and try again");
-				return new ResponseEntity<>(structure, HttpStatus.NOT_ACCEPTABLE);
-			}
+			return reply(structure, HttpStatus.BAD_REQUEST, "Email doesn't exist, create an account first");
 		}
-
+		long wait = attempts.emailCooldown(customer.getEmail());
+		if (wait > 0) {
+			return reply(structure, HttpStatus.TOO_MANY_REQUESTS,
+					"An OTP was just sent. Wait " + wait + " seconds before asking for another.");
+		}
+		customer.setOtpAttempts(0);
+		if (emailOtpService.sendOtp(customer, EmailOtpService.Purpose.RESET_PASSWORD)) {
+			customer_Repository.save(customer);
+			return reply(structure, HttpStatus.OK, "OTP sent to " + customer.getEmail());
+		}
+		return reply(structure, HttpStatus.NOT_ACCEPTABLE,
+				"Couldn't send the OTP email. Check the email address and try again.");
 	}
 
+	@Override
+	public ResponseEntity<ResponseStructure<Customer>> resendOtp(String email) {
+		ResponseStructure<Customer> structure = new ResponseStructure<>();
+		Customer customer = email == null ? null : customer_Repository.findByEmail(email.trim());
+		if (customer == null) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "Email doesn't exist, create an account first");
+		}
+		if (customer.isStatus()) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "This email is already verified. You can log in.");
+		}
+		long wait = attempts.emailCooldown(customer.getEmail());
+		if (wait > 0) {
+			return reply(structure, HttpStatus.TOO_MANY_REQUESTS,
+					"An OTP was just sent. Wait " + wait + " seconds before asking for another.");
+		}
+		customer.setOtpAttempts(0);
+		if (emailOtpService.sendOtp(customer, EmailOtpService.Purpose.SIGNUP)) {
+			customer_Repository.save(customer);
+			return reply(structure, HttpStatus.OK, "New OTP sent to " + customer.getEmail());
+		}
+		return reply(structure, HttpStatus.INTERNAL_SERVER_ERROR, "Couldn't send the OTP email. Try again.");
+	}
+
+	/** Right OTP -> a 10-minute token that can only be used to set a new password */
 	@Override
 	public ResponseEntity<ResponseStructure<Customer>> submitForgotOtp(String email, int otp) {
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
-		Customer customer = customer_Repository.findByEmail(email);
-
-		if (customer != null && customer.getOtp() == otp) {
-			LocalDateTime otpGeneratedTime = customer.getSetOtpGeneratedTime();
-			LocalDateTime currentTime = LocalDateTime.now();
-			Duration duration = Duration.between(otpGeneratedTime, currentTime);
-
-			if (duration.toMinutes() <= 5) {
-				customer.setStatus(true);
-				customer.setOtp(0);
-				long expirationMillis = System.currentTimeMillis() + 600000; // 10 min in milliseconds
-				Date expirationDate = new Date(expirationMillis);
-				String token = jwtUtil.generateToken_for_customer(customer, expirationDate);
-				customer_Repository.save(customer);
-				structure.setData(token);
-				structure.setData2(customer);
-				structure.setMessage("Account Verified Successfully");
-				structure.setStatus(HttpStatus.ACCEPTED.value());
-			} else {
-				structure.setData(null);
-				structure.setMessage("OTP has expired.");
-				structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			}
-		} else {
-			structure.setData(null);
-			structure.setMessage("Incorrect OTP");
-			structure.setStatus(HttpStatus.BAD_REQUEST.value());
+		String problem = checkOtp(email, otp);
+		if (problem != null) {
+			return reply(structure, problem.startsWith("Too many") ? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.BAD_REQUEST,
+					problem);
 		}
-
-		return new ResponseEntity<>(structure, HttpStatus.OK);
+		Customer customer = customer_Repository.findByEmail(email.trim());
+		customer.setStatus(true); // they proved they own the email
+		customer_Repository.save(customer);
+		structure.setData(jwtUtil.generateResetToken(customer));
+		return reply(structure, HttpStatus.ACCEPTED, "Account Verified Successfully");
 	}
 
+	/**
+	 * Sets a new password. Needs the reset token from submitForgotOtp; the account comes from
+	 * that token, never from the request. Every other session is logged out.
+	 */
 	@Override
 	public ResponseEntity<ResponseStructure<Customer>> setPassword(String email, String password, String token) {
 		ResponseStructure<Customer> structure = new ResponseStructure<>();
-		Customer customer = customer_Repository.findByEmail(email);
-		if (!jwtUtil.isValidToken(token)) {
-			structure.setData(null);
-			structure.setMessage("Invalid or Expired Token, Please Login Again");
-			structure.setStatus(HttpStatus.BAD_REQUEST.value());
-			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-		} else {
-			customer.setPassword(encoder.encode(password));
-			customer_Repository.save(customer);
-			structure.setData2(customer);
-			structure.setMessage("Password Reset Success");
-			structure.setStatus(HttpStatus.OK.value());
-			return new ResponseEntity<>(structure, HttpStatus.OK);
+		JwtUtil.TokenInfo info = jwtUtil.verify(token, JwtUtil.PURPOSE_RESET);
+		if (info == null) {
+			return reply(structure, HttpStatus.UNAUTHORIZED,
+					"This reset link has expired. Ask for a new OTP and try again.");
 		}
+		if (email != null && !email.isBlank() && !email.trim().equalsIgnoreCase(info.subject())) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "This reset is for a different email address.");
+		}
+		String problem = AccountRules.newPassword(password);
+		if (problem != null) {
+			return reply(structure, HttpStatus.BAD_REQUEST, problem);
+		}
+		Customer customer = customer_Repository.findByEmail(info.subject());
+		customer.setPassword(encoder.encode(password));
+		// ends every session, and this reset token too
+		customer.setTokenVersion(JwtUtil.version(customer.getTokenVersion()) + 1);
+		customer_Repository.save(customer);
+		return reply(structure, HttpStatus.OK, "Password Reset Success");
+	}
+
+	private static <T> ResponseEntity<ResponseStructure<T>> reply(ResponseStructure<T> structure, HttpStatus status,
+			String message) {
+		structure.setMessage(message);
+		structure.setStatus(status.value());
+		return new ResponseEntity<>(structure, status);
 	}
 
 	@Override
 	public ResponseEntity<ResponseStructure<List<Train>>> searchStation(String start, String end, String email,
 			String token, String date) {
 		ResponseStructure<List<Train>> structure = new ResponseStructure<>();
-		Customer customer = customer_Repository.findByEmail(email);
+		// The passenger comes from the token, not from the email in the request
+		String[] subject = jwtUtil.getSubject(token);
+		Customer customer = subject == null ? null : customer_Repository.findByEmail(subject[0]);
 
 		if (!jwtUtil.isValidToken(token)) {
 			structure.setMessage("Invalid token.");
@@ -329,129 +405,4 @@ public  class Customer_Service_Implementation implements Customer_Service {
 
 		return false;
 	}
-
-	@Override
-	public ResponseEntity<ResponseStructure<Seat>> selectSeatType(String seatType, int trainNo, String token,
-	        String date, String start, String end) {
-	    ResponseStructure<Seat> structure = new ResponseStructure<>();
-	    Train train = train_Repository.findByTrainNumber(trainNo);
-
-	    if (!jwtUtil.isValidToken(token)) {
-	        structure.setMessage("Invalid token.");
-	        structure.setStatus(HttpStatus.UNAUTHORIZED.value());
-	        return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
-	    }
-
-	    if (train == null) {
-	        structure.setMessage("Train not found");
-	        structure.setStatus(HttpStatus.BAD_REQUEST.value());
-	        return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-	    }
-
-	    List<Station> boardingStations = station_Repository.findByStationName(start);
-	    List<Station> destinationStations = station_Repository.findByStationName(end);
-
-	    if (boardingStations.isEmpty() || destinationStations.isEmpty()) {
-	        structure.setMessage("No matching stations found.");
-	        structure.setStatus(HttpStatus.NOT_FOUND.value());
-	        return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
-	    }
-
-	    DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("M/d/yyyy");
-	    LocalDate localDate = LocalDate.parse(date, dateFormatter);
-
-	    if (localDate.isBefore(LocalDate.now())) {
-	        structure.setMessage("Specified date is in the past.");
-	        structure.setStatus(HttpStatus.BAD_REQUEST.value());
-	        return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-	    }
-
-	    for (Station boardingStation : boardingStations) {
-	        LocalTime departureTime = boardingStation.getDepartureTime();
-	        LocalDateTime departureDateTime = LocalDateTime.of(localDate, departureTime);
-	        LocalDateTime currentDateTime = LocalDateTime.now();
-
-	        if (currentDateTime.isAfter(departureDateTime)) {
-	            structure.setMessage("Train Departed");
-	            structure.setStatus(HttpStatus.NOT_FOUND.value());
-	            return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
-	        }
-	    }
-
-	    Seat seat = train.getSeat();
-	    seatType = seatType.toUpperCase();
-	    Seat_type inputSeatType;
-
-	    Schedule schedule = train.getSchedule();
-	    String[] week = schedule.getRunningWeeks();
-	    String dayOfWeek = localDate.getDayOfWeek().toString().toLowerCase();
-
-	    boolean isRunningOnRoute = isTrainRunningOnRoute(train.getStations(), start, end);
-
-	    if (isRunningOnRoute && Arrays.stream(week).map(String::toLowerCase).anyMatch(dayOfWeek::equals)) {
-	        try {
-	            inputSeatType = Seat_type.valueOf(seatType);
-	        } catch (IllegalArgumentException e) {
-	            structure.setMessage("Invalid Seat Type");
-	            structure.setStatus(HttpStatus.BAD_REQUEST.value());
-	            return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-	        }
-
-	        switch (inputSeatType) {
-	            case SECOND_CLASS:
-	            case SLEEPER_CLASS:
-	            case AC3_TIER:
-	            case AC2_TIER:
-	            case AC1_TIER:
-	                Seat seatNumber = getSeatNumberForType(seat, inputSeatType);
-	                structure.setData2(seatNumber);
-	                structure.setMessage("Seat Available");
-	                structure.setStatus(HttpStatus.OK.value());
-	                return new ResponseEntity<>(structure, HttpStatus.OK);
-	            default:
-	                structure.setMessage("No Seat Available");
-	                structure.setStatus(HttpStatus.BAD_REQUEST.value());
-	                return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
-	        }
-	    } else {
-	        structure.setMessage("No matching trains found for the specified route.");
-	        structure.setStatus(HttpStatus.NOT_FOUND.value());
-	        return new ResponseEntity<>(structure, HttpStatus.NOT_FOUND);
-	    }
-	}
-
-
-
-	private Seat getSeatNumberForType(Seat seat, Seat_type seatType) {
-		Seat selectedSeat = new Seat();
-		switch (seatType) {
-		case SECOND_CLASS:
-			selectedSeat.setSecond_class(seat.getSecond_class());
-			break;
-		case SLEEPER_CLASS:
-			selectedSeat.setSleeper_class(seat.getSleeper_class());
-			break;
-		case AC3_TIER:
-			selectedSeat.setAc3_tier(seat.getAc3_tier());
-			break;
-		case AC2_TIER:
-			selectedSeat.setAc2_tier(seat.getAc2_tier());
-			break;
-		case AC1_TIER:
-			selectedSeat.setAc1_tier(seat.getAc1_tier());
-			break;
-		}
-		return selectedSeat;
-	}
-
-	@Override
-	public ResponseEntity<ResponseStructure<Booking>> booking(List<Booking> bookings, String token, int train_no,
-			String seat_type, String book_date) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-
-
-
 }

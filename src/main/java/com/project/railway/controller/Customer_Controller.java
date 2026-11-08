@@ -5,7 +5,6 @@ import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,9 +17,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.project.railway.dto.Booking;
 import com.project.railway.dto.Customer;
-import com.project.railway.dto.Seat;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.service.Customer_Service;
@@ -31,7 +28,6 @@ import jakarta.mail.internet.ParseException;
 
 @RestController
 @RequestMapping("customer")
-@CrossOrigin
 public class Customer_Controller {
 
 	@Autowired
@@ -39,7 +35,7 @@ public class Customer_Controller {
 
 	@PostMapping("/signup")
 	public ResponseEntity<ResponseStructure<Customer>> signup(@ModelAttribute Customer customer,
-			@RequestPart MultipartFile pic) throws Exception {
+			@RequestPart(required = false) MultipartFile pic) throws Exception {
 		return customer_Service.signup(customer, pic);
 	}
 
@@ -52,6 +48,11 @@ public class Customer_Controller {
 	@PostMapping("/verify_otp")
 	public ResponseEntity<ResponseStructure<Customer>> verifyotp(@RequestParam String email, @RequestParam int otp) {
 		return customer_Service.verifyotp(email, otp);
+	}
+
+	@PostMapping("/resend_otp")
+	public ResponseEntity<ResponseStructure<Customer>> resendOtp(@RequestParam String email) {
+		return customer_Service.resendOtp(email);
 	}
 
 	@PostMapping("/forgot_passowrd")
@@ -71,24 +72,18 @@ public class Customer_Controller {
 		return customer_Service.setPassword(email, password, token);
 	}
 
+	/** Logs out this session; everywhere=true logs out every device */
+	@PostMapping("/logout")
+	public ResponseEntity<ResponseStructure<Customer>> logout(@RequestHeader("Bearer") String token,
+			@RequestParam(defaultValue = "false") boolean everywhere) {
+		return customer_Service.logout(token, everywhere);
+	}
+
 	@GetMapping("/searchStation")
 	public ResponseEntity<ResponseStructure<List<Train>>> searchstation(@RequestParam String start,
 			@RequestParam String end, @RequestParam String email, @RequestHeader("Bearer") String token,
 			@RequestParam String date) {
 		return customer_Service.searchStation(start, end, email, token, date);
-	}
-
-	@GetMapping("/select_class/{train_no}/{start}/{end}")
-	public ResponseEntity<ResponseStructure<Seat>> selectSeatType(@RequestParam String seat_type,
-			@PathVariable int train_no, @RequestHeader("Bearer") String token, @RequestParam String date,
-			@PathVariable String start, @PathVariable String end) {
-		return customer_Service.selectSeatType(seat_type, train_no, token, date, start, end);
-	}
-
-	@PostMapping("/booking/{train_no}")
-	public ResponseEntity<ResponseStructure<Booking>> booking(@RequestBody List<Booking> bookings,
-			@RequestHeader("Bearer") String token, @PathVariable int train_no, @RequestParam String seat_type,@RequestParam String book_date) {
-		return customer_Service.booking(bookings, token, train_no, seat_type,book_date);
 	}
 
 }

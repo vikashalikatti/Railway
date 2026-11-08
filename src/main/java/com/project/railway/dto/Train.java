@@ -11,9 +11,9 @@ import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
+import jakarta.persistence.OrderBy;
 import lombok.Data;
 
 @Entity
@@ -30,18 +30,17 @@ public class Train {
 	private String train_type;
 
 	@OneToOne(cascade = { CascadeType.ALL, CascadeType.MERGE }, fetch = FetchType.EAGER, orphanRemoval = true)
-	@JoinColumn(name = "seat_id")
-	private Seat seat;
-
-	@OneToOne(cascade = { CascadeType.ALL, CascadeType.MERGE }, fetch = FetchType.EAGER, orphanRemoval = true)
 	private Route route;
 
 	@OneToOne(cascade = { CascadeType.ALL, CascadeType.MERGE }, fetch = FetchType.EAGER, orphanRemoval = true)
 	private Schedule schedule;
 
+	/** Stops in route order (they are saved in the order the admin enters them) */
 	@OneToMany(cascade = { CascadeType.ALL }, fetch = FetchType.EAGER, orphanRemoval = true)
+	@OrderBy("stationId ASC")
 	private List<Station> stations;
 
 	@OneToMany(mappedBy = "train", cascade = CascadeType.ALL, fetch = FetchType.EAGER, orphanRemoval = true)
+	@OrderBy("id ASC")
 	private List<Coach> coaches;
 }
