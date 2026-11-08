@@ -1,5 +1,18 @@
 # Changelog — Railway backend
 
+## v1.8.0 — 9 Nov 2026
+Coaches by date (rush days). Use with frontend v1.13.0.
+- Coaches have optional "runs from" / "runs until" dates (coach.valid_from, coach.valid_to, added
+  by Hibernate). Availability, booking, waitlist promotion and charts only use coaches running on
+  the journey date; a class with no coach that day says so.
+- POST /admin/coaches/{train}/add {seatType, count, from, to?}: extra coaches from a date, for good
+  or until an end date. Allowed whatever is booked. Their seats are General and go straight to the
+  class's waitlist on those dates (General first, then Tatkal), and those passengers are emailed.
+- POST /admin/coaches/{train}/remove {coachNumbers, from}: takes coaches off from a date on. Only
+  confirmed passengers in those coaches on or after that date stop it; cancelled tickets never do.
+- "Change coaches" (replace all) is now only blocked by upcoming tickets that aren't cancelled;
+  past and cancelled tickets no longer block it.
+
 ## v1.7.0 — 9 Nov 2026
 Chart & vacancy. Use with frontend v1.11.0.
 - GET /customer/chart/{train}?date=yyyy-MM-dd (public, no log-in): once the first chart is prepared,

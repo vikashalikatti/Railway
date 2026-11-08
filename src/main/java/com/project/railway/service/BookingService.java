@@ -396,15 +396,19 @@ public class BookingService {
 						+ opens.format(DateTimeFormatter.ofPattern("d MMM 'at' HH:mm", Locale.ENGLISH)) + ".";
 			}
 		}
+		if (coachSeatRepository.countSeatsInClassOn(trainNo, seatType.name(), date) == 0) {
+			throw new BookingException(HttpStatus.BAD_REQUEST, "This train has no " + CoachLayout.shortCode(seatType)
+					+ " coaches on " + date.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)) + ".");
+		}
 		if (closed == null && !anyQuota && quota != Quota.GN
-				&& coachSeatRepository.countSeatsInQuota(trainNo, seatType.name(), quota.name()) == 0) {
+				&& coachSeatRepository.countSeatsInQuotaOn(trainNo, seatType.name(), quota.name(), date) == 0) {
 			closed = "This train has no " + quota.label + " seats in " + CoachLayout.shortCode(seatType) + ".";
 		}
 
 		double baseFare = train.getRoute() != null ? train.getRoute().getPrice() : 0;
 		double fare = FareCalculator.perPassenger(seatType, distance, baseFare);
 		if (quota == Quota.PT) {
-			long total = coachSeatRepository.countSeatsInQuota(trainNo, seatType.name(), Quota.PT.name());
+			long total = coachSeatRepository.countSeatsInQuotaOn(trainNo, seatType.name(), Quota.PT.name(), date);
 			long free = coachSeatRepository.countFree(trainNo, seatType.name(), date, fromStop, toStop,
 					Quota.PT.name(), false);
 			fare = TatkalRules.fare(quota, seatType, fare, Math.max(0, total - free), total);

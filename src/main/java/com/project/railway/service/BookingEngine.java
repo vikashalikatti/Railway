@@ -270,6 +270,23 @@ public class BookingEngine {
 		return touched;
 	}
 
+	/**
+	 * New coaches were added for this date: give their seats to the class's waitlist,
+	 * General first, then Tatkal, lowest WL number first. Passengers who get a seat are emailed.
+	 */
+	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 30)
+	public int promoteAfterNewSeats(int trainNumber, LocalDate date, Seat_type type) {
+		int confirmed = 0;
+		for (Quota q : List.of(Quota.GN, Quota.TQ)) {
+			lockCounter(trainNumber, date, q.counterKey(type));
+			long before = passengerRepository.countWaitlisted(trainNumber, date, type.name(), q.name());
+			promoteWaitlist(trainNumber, date, type, q, false, true);
+			passengerRepository.flush();
+			confirmed += (int) (before - passengerRepository.countWaitlisted(trainNumber, date, type.name(), q.name()));
+		}
+		return confirmed;
+	}
+
 	/* ------------------------------------------------------------ charts */
 
 	/**

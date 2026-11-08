@@ -37,6 +37,22 @@ public interface Passenger_Repository extends JpaRepository<Passenger, Long> {
 			+ " and (p.status <> 'CAN' or p.cancelReason = 'CHART') order by b.seatType, p.coachNumber, p.seatNumber, p.id")
 	List<Passenger> findForChart(@Param("train") int train, @Param("date") LocalDate date);
 
+	/** Dates (in a range) on which someone is waiting in a class of a train */
+	@Query("select distinct b.journeyDate from Passenger p join p.booking b where b.trainNumber = :train"
+			+ " and b.seatType = :type and p.status = 'WL' and b.journeyDate between :from and :to order by b.journeyDate")
+	List<LocalDate> findWaitlistDates(@Param("train") int train, @Param("type") String type, @Param("from") LocalDate from,
+			@Param("to") LocalDate to);
+
+	/** Confirmed passengers per date in these coaches from a date on: rows [journeyDate, count]. Cancelled tickets don't count. */
+	@Query("select b.journeyDate, count(p) from Passenger p join p.booking b where p.seat.coach.id in :coachIds"
+			+ " and p.status = 'CNF' and b.journeyDate >= :from group by b.journeyDate order by b.journeyDate")
+	List<Object[]> countConfirmedInCoachesFrom(@Param("coachIds") java.util.Collection<Integer> coachIds,
+			@Param("from") LocalDate from);
+
+	/** Passengers (any status, any date) still pointing at these seats */
+	@Query("select count(p) from Passenger p where p.seat.id in :seatIds")
+	long countBySeatIds(@Param("seatIds") java.util.Collection<Long> seatIds);
+
 	/** Classes of a train run that still have someone waiting: rows [seatType, quota] */
 	@Query("select distinct b.seatType, coalesce(b.quota, 'GN') from Passenger p join p.booking b"
 			+ " where b.trainNumber = :train and b.journeyDate = :date and p.status = 'WL'")

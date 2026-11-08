@@ -106,6 +106,23 @@ public class Admin_Controller {
 		return chartService.adminChart(token, train_No, date);
 	}
 
+	/**
+	 * Adds coaches from a date, for good or until an end date (rush days).
+	 * Body: {"seatType": "SLEEPER_CLASS", "count": 2, "from": "2026-11-12", "to": "2026-11-20"}
+	 */
+	@PostMapping("/coaches/{train_No}/add")
+	public ResponseEntity<ResponseStructure<Train>> addCoachesFrom(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestBody Map<String, Object> body) {
+		return admin_Service.addCoachesFrom(token, train_No, body);
+	}
+
+	/** Takes coaches off from a date on. Body: {"coachNumbers": ["S9", "S10"], "from": "2026-11-21"} */
+	@PostMapping("/coaches/{train_No}/remove")
+	public ResponseEntity<ResponseStructure<Train>> removeCoachesFrom(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestBody Map<String, Object> body) {
+		return admin_Service.removeCoachesFrom(token, train_No, body);
+	}
+
 	/** All trains, for the admin page */
 	@GetMapping("/trains")
 	public ResponseEntity<ResponseStructure<List<Train>>> listTrains(@RequestHeader("Bearer") String token) {

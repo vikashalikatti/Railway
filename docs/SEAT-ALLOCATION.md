@@ -107,6 +107,8 @@ retries the whole transaction up to 3 times, then answers `409 Try again`.
 | POST | `/admin/quotas/{train}` | body `{"SLEEPER_CLASS": {"tatkalPct":30,"premiumPct":10,"ladiesPct":5,"seniorPct":8}}` |
 | GET | `/customer/chart/{train}?date=yyyy-MM-dd` | public berth map after the first chart: `{stops, classes:[{coaches:[{berths:[{seatNumber, berthType, booked:[{from,to}]}]}]}]}`, no personal details |
 | GET | `/admin/chart/{train}?date=yyyy-MM-dd` | same, any time, plus `passengers` (name, age, gender, PNR, berth, journey, quota, status) |
+| POST | `/admin/coaches/{train}/add` | body `{"seatType":"SLEEPER_CLASS","count":2,"from":"2026-11-12","to":"2026-11-20"}` (to optional) |
+| POST | `/admin/coaches/{train}/remove` | body `{"coachNumbers":["S9"],"from":"2026-11-21"}`; refused only while confirmed passengers are in them from that date |
 | GET | `/customer/pnr/{pnr}` | one booking, with current WL positions |
 | GET | `/customer/my_bookings` | all of the passenger's bookings |
 | POST | `/customer/cancel/{pnr}` | body `[passengerId, …]`, or empty to cancel all |

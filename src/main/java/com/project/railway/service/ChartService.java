@@ -134,7 +134,7 @@ public class ChartService {
 		// class -> coach -> berths, in the train's coach order
 		Map<String, Map<String, List<ChartView.ChartBerth>>> byClass = new LinkedHashMap<>();
 		Map<String, int[]> totals = new HashMap<>(); // class -> [berths, vacant for the whole route]
-		for (CoachSeat s : seatRepository.findSeatsOfTrain(train.getTrainNumber())) {
+		for (CoachSeat s : seatRepository.findSeatsOfTrainOn(train.getTrainNumber(), run.date())) {
 			String type = s.getCoach().getCoachType();
 			List<ChartView.Segment> segs = booked.getOrDefault(s.getId(), List.of());
 			byClass.computeIfAbsent(type, k -> new LinkedHashMap<>())

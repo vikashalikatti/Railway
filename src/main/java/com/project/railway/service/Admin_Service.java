@@ -48,6 +48,10 @@ public interface Admin_Service {
 
 	ResponseEntity<ResponseStructure<List<QuotaView>>> quotas(String token, int trainNo);
 
+	ResponseEntity<ResponseStructure<Train>> addCoachesFrom(String token, int trainNo, Map<String, Object> body);
+
+	ResponseEntity<ResponseStructure<Train>> removeCoachesFrom(String token, int trainNo, Map<String, Object> body);
+
 	ResponseEntity<ResponseStructure<List<QuotaView>>> saveQuotas(String token, int trainNo,
 			Map<String, Map<String, Integer>> body);
 }
