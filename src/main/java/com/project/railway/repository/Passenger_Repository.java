@@ -14,20 +14,32 @@ import jakarta.persistence.LockModeType;
 
 public interface Passenger_Repository extends JpaRepository<Passenger, Long> {
 
-	/** Waiting passengers for a train, date and class, oldest WL number first, locked for promotion */
+	/** Waiting passengers for a train, date, class and quota, oldest WL number first, locked for promotion */
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select p from Passenger p join p.booking b where b.trainNumber = :train and b.journeyDate = :date"
-			+ " and b.seatType = :type and p.status = 'WL' order by p.wlNumber asc")
+			+ " and b.seatType = :type and coalesce(b.quota, 'GN') = :quota and p.status = 'WL' order by p.wlNumber asc")
 	List<Passenger> findWaitlistForUpdate(@Param("train") int train, @Param("date") LocalDate date,
-			@Param("type") String type);
+			@Param("type") String type, @Param("quota") String quota);
 
 	@Query("select count(p) from Passenger p join p.booking b where b.trainNumber = :train and b.journeyDate = :date"
-			+ " and b.seatType = :type and p.status = 'WL'")
-	long countWaitlisted(@Param("train") int train, @Param("date") LocalDate date, @Param("type") String type);
+			+ " and b.seatType = :type and coalesce(b.quota, 'GN') = :quota and p.status = 'WL'")
+	long countWaitlisted(@Param("train") int train, @Param("date") LocalDate date, @Param("type") String type,
+			@Param("quota") String quota);
 
-	/** How many waiting passengers are ahead of WL number :wl */
+	/** How many waiting passengers of the same quota are ahead of WL number :wl */
 	@Query("select count(p) from Passenger p join p.booking b where b.trainNumber = :train and b.journeyDate = :date"
-			+ " and b.seatType = :type and p.status = 'WL' and p.wlNumber < :wl")
+			+ " and b.seatType = :type and coalesce(b.quota, 'GN') = :quota and p.status = 'WL' and p.wlNumber < :wl")
 	long countWaitlistedBefore(@Param("train") int train, @Param("date") LocalDate date, @Param("type") String type,
-			@Param("wl") int wl);
+			@Param("quota") String quota, @Param("wl") int wl);
+
+	/** Classes of a train run that still have someone waiting: rows [seatType, quota] */
+	@Query("select distinct b.seatType, coalesce(b.quota, 'GN') from Passenger p join p.booking b"
+			+ " where b.trainNumber = :train and b.journeyDate = :date and p.status = 'WL'")
+	List<Object[]> findWaitingClasses(@Param("train") int train, @Param("date") LocalDate date);
+
+	/** Everyone still waiting on a train run, locked (cancelled when the first chart is prepared) */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select p from Passenger p join p.booking b where b.trainNumber = :train and b.journeyDate = :date"
+			+ " and p.status = 'WL' order by p.id")
+	List<Passenger> findAllWaitingForUpdate(@Param("train") int train, @Param("date") LocalDate date);
 }

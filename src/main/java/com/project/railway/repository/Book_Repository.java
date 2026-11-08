@@ -14,6 +14,9 @@ public interface Book_Repository extends JpaRepository<Booking, Long> {
 
 	boolean existsByTrainNumber(int trainNumber);
 
+	/** Every booking on one train run (for chart emails) */
+	List<Booking> findByTrainNumberAndJourneyDate(int trainNumber, LocalDate journeyDate);
+
 	/** Tickets for today or later that aren't cancelled */
 	List<Booking> findByTrainNumberAndJourneyDateGreaterThanEqualAndStatusNot(int trainNumber, LocalDate from,
 			String status);

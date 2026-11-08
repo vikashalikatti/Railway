@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.QuotaView;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Station;
@@ -77,6 +78,20 @@ public class Admin_Controller {
 	public ResponseEntity<ResponseStructure<Train>> addCoaches(@RequestBody Map<String, Integer> composition,
 			@RequestHeader("Bearer") String token, @PathVariable int train_No) {
 		return admin_Service.addCoaches(composition, token, train_No);
+	}
+
+	/** Quota split per class of a train: Tatkal, Premium Tatkal, Ladies and Senior citizen in percent */
+	@GetMapping("/quotas/{train_No}")
+	public ResponseEntity<ResponseStructure<List<QuotaView>>> quotas(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No) {
+		return admin_Service.quotas(token, train_No);
+	}
+
+	/** Body: {"SLEEPER_CLASS": {"tatkalPct": 30, "premiumPct": 10, "ladiesPct": 5, "seniorPct": 8}} */
+	@PostMapping("/quotas/{train_No}")
+	public ResponseEntity<ResponseStructure<List<QuotaView>>> saveQuotas(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestBody Map<String, Map<String, Integer>> body) {
+		return admin_Service.saveQuotas(token, train_No, body);
 	}
 
 	/** All trains, for the admin page */

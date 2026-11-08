@@ -27,19 +27,39 @@ public interface CoachSeat_Repository extends JpaRepository<CoachSeat, Long> {
 	String FREE_FOR_SEGMENT = " NOT EXISTS (SELECT 1 FROM seat_occupancy o WHERE o.seat_id = cs.id"
 			+ " AND o.journey_date = :date AND o.from_stop < :toStop AND o.to_stop > :fromStop) ";
 
+	/**
+	 * Seats sold in this quota. :anyQuota = true after the first chart, when unsold seats of every
+	 * quota are released (seats with no quota set count as General).
+	 */
+	String IN_QUOTA = " AND (:anyQuota = TRUE OR COALESCE(cs.quota, 'GN') = :quota) ";
+
 	/** Free seats for a segment, per coach of one class. Rows: [coach_id, free_seats]. No locks. */
 	@Query(value = "SELECT cs.coach_id, COUNT(*) AS free_seats FROM coach_seat cs"
 			+ " JOIN coach c ON c.id = cs.coach_id"
-			+ " WHERE c.train_number = :train AND c.coach_type = :type AND" + FREE_FOR_SEGMENT
+			+ " WHERE c.train_number = :train AND c.coach_type = :type AND" + FREE_FOR_SEGMENT + IN_QUOTA
 			+ " GROUP BY cs.coach_id ORDER BY cs.coach_id", nativeQuery = true)
 	List<Object[]> countFreeByCoach(@Param("train") int train, @Param("type") String type,
-			@Param("date") LocalDate date, @Param("fromStop") int fromStop, @Param("toStop") int toStop);
+			@Param("date") LocalDate date, @Param("fromStop") int fromStop, @Param("toStop") int toStop,
+			@Param("quota") String quota, @Param("anyQuota") boolean anyQuota);
 
 	/** Free seats for a segment in one class. No locks (used to show availability). */
 	@Query(value = "SELECT COUNT(*) FROM coach_seat cs JOIN coach c ON c.id = cs.coach_id"
-			+ " WHERE c.train_number = :train AND c.coach_type = :type AND" + FREE_FOR_SEGMENT, nativeQuery = true)
+			+ " WHERE c.train_number = :train AND c.coach_type = :type AND" + FREE_FOR_SEGMENT + IN_QUOTA,
+			nativeQuery = true)
 	long countFree(@Param("train") int train, @Param("type") String type, @Param("date") LocalDate date,
-			@Param("fromStop") int fromStop, @Param("toStop") int toStop);
+			@Param("fromStop") int fromStop, @Param("toStop") int toStop, @Param("quota") String quota,
+			@Param("anyQuota") boolean anyQuota);
+
+	/** Seats of a class that belong to a quota, booked or not */
+	@Query(value = "SELECT COUNT(*) FROM coach_seat cs JOIN coach c ON c.id = cs.coach_id"
+			+ " WHERE c.train_number = :train AND c.coach_type = :type AND COALESCE(cs.quota, 'GN') = :quota",
+			nativeQuery = true)
+	long countSeatsInQuota(@Param("train") int train, @Param("type") String type, @Param("quota") String quota);
+
+	/** Every seat of a class in coach-then-seat order, for splitting into quotas */
+	@Query("select s from CoachSeat s where s.coach.train.trainNumber = :train and s.coach.coachType = :type"
+			+ " order by s.coach.id, s.seatNumber")
+	List<CoachSeat> findSeatsInClass(@Param("train") int train, @Param("type") String type);
 
 	/** All seats in a class, booked or not. 0 means the class's coaches have no seats set up. */
 	@Query(value = "SELECT COUNT(*) FROM coach_seat cs JOIN coach c ON c.id = cs.coach_id"
@@ -48,20 +68,21 @@ public interface CoachSeat_Repository extends JpaRepository<CoachSeat, Long> {
 
 	/** Locks up to :lim free seats in one coach, skipping seats other bookings have locked. */
 	@Query(value = "SELECT cs.* FROM coach_seat cs"
-			+ " WHERE cs.coach_id = :coachId AND cs.id NOT IN (:exclude) AND" + FREE_FOR_SEGMENT
+			+ " WHERE cs.coach_id = :coachId AND cs.id NOT IN (:exclude) AND" + FREE_FOR_SEGMENT + IN_QUOTA
 			+ " ORDER BY cs.seat_number LIMIT :lim FOR UPDATE SKIP LOCKED", nativeQuery = true)
 	List<CoachSeat> lockFreeInCoach(@Param("coachId") int coachId, @Param("exclude") Collection<Long> exclude,
 			@Param("date") LocalDate date, @Param("fromStop") int fromStop, @Param("toStop") int toStop,
-			@Param("lim") int lim);
+			@Param("quota") String quota, @Param("anyQuota") boolean anyQuota, @Param("lim") int lim);
 
 	/** Locks up to :lim free seats in any coach of the class, skipping locked ones. */
 	@Query(value = "SELECT cs.* FROM coach_seat cs JOIN coach c ON c.id = cs.coach_id"
 			+ " WHERE c.train_number = :train AND c.coach_type = :type AND cs.id NOT IN (:exclude) AND"
-			+ FREE_FOR_SEGMENT + " ORDER BY c.id, cs.seat_number LIMIT :lim FOR UPDATE OF cs SKIP LOCKED",
+			+ FREE_FOR_SEGMENT + IN_QUOTA + " ORDER BY c.id, cs.seat_number LIMIT :lim FOR UPDATE OF cs SKIP LOCKED",
 			nativeQuery = true)
 	List<CoachSeat> lockFreeInClass(@Param("train") int train, @Param("type") String type,
 			@Param("exclude") Collection<Long> exclude, @Param("date") LocalDate date, @Param("fromStop") int fromStop,
-			@Param("toStop") int toStop, @Param("lim") int lim);
+			@Param("toStop") int toStop, @Param("quota") String quota, @Param("anyQuota") boolean anyQuota,
+			@Param("lim") int lim);
 
 	/**
 	 * Same as lockFreeInClass but WAITS for seats other bookings hold, instead of skipping
@@ -70,10 +91,11 @@ public interface CoachSeat_Repository extends JpaRepository<CoachSeat, Long> {
 	 */
 	@Query(value = "SELECT cs.* FROM coach_seat cs JOIN coach c ON c.id = cs.coach_id"
 			+ " WHERE c.train_number = :train AND c.coach_type = :type AND cs.id NOT IN (:exclude) AND"
-			+ FREE_FOR_SEGMENT + " ORDER BY cs.id LIMIT :lim FOR UPDATE OF cs", nativeQuery = true)
+			+ FREE_FOR_SEGMENT + IN_QUOTA + " ORDER BY cs.id LIMIT :lim FOR UPDATE OF cs", nativeQuery = true)
 	List<CoachSeat> lockFreeInClassWaiting(@Param("train") int train, @Param("type") String type,
 			@Param("exclude") Collection<Long> exclude, @Param("date") LocalDate date, @Param("fromStop") int fromStop,
-			@Param("toStop") int toStop, @Param("lim") int lim);
+			@Param("toStop") int toStop, @Param("quota") String quota, @Param("anyQuota") boolean anyQuota,
+			@Param("lim") int lim);
 
 	/**
 	 * Of the given (already locked) seats, the ones that are NOT free for the segment.

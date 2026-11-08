@@ -43,6 +43,8 @@ import com.project.railway.dto.Coach;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.CoachSeat;
+import com.project.railway.dto.QuotaShare;
+import com.project.railway.dto.QuotaView;
 import com.project.railway.dto.Station;
 import com.project.railway.dto.StationMaster;
 import com.project.railway.dto.Train;
@@ -51,6 +53,8 @@ import com.project.railway.helper.EmailService;
 import com.project.railway.helper.AccountRules;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.LoginAttemptService;
+import com.project.railway.helper.Quota;
+import com.project.railway.helper.QuotaPlanner;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Seat_type;
 import com.project.railway.repository.Admin_Repository;
@@ -60,6 +64,7 @@ import com.project.railway.repository.Schedule_Repository;
 import com.project.railway.repository.Book_Repository;
 import com.project.railway.repository.CoachSeat_Repository;
 import com.project.railway.repository.StationMaster_Repository;
+import com.project.railway.repository.QuotaShare_Repository;
 import com.project.railway.repository.Station_Repository;
 import com.project.railway.repository.Train_Repository;
 import com.project.railway.service.Admin_Service;
@@ -118,6 +123,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 	@Autowired
 	private LoginAttemptService loginAttempts;
+
+	@Autowired
+	private QuotaShare_Repository quotaShare_Repository;
 
 	@PersistenceContext
 	private EntityManager entityManager;
@@ -575,6 +583,11 @@ public class Admin_Service_Implementation implements Admin_Service {
 			}
 		}
 		coachSeat_Repository.saveAll(seats);
+		// Split every new class into quotas (the admin's saved shares, or the defaults)
+		for (Seat_type type : counts.keySet()) {
+			applyQuotas(trainNo, type, seats.stream().filter(seat -> type.name().equals(seat.getCoach().getCoachType()))
+					.toList());
+		}
 
 		if (train.getCoaches() == null) {
 			train.setCoaches(new ArrayList<>());
@@ -660,6 +673,130 @@ public class Admin_Service_Implementation implements Admin_Service {
 		structure.setMessage("Estimated km between stops");
 		structure.setStatus(HttpStatus.OK.value());
 		return new ResponseEntity<>(structure, HttpStatus.OK);
+	}
+
+	/* ------------------------------------------------------------ quotas */
+
+	/** The admin's shares for a class, or the defaults */
+	private QuotaPlanner.Shares sharesFor(int trainNo, Seat_type type) {
+		QuotaShare row = quotaShare_Repository.findByTrainNumberAndSeatType(trainNo, type.name());
+		return row == null ? QuotaPlanner.Shares.defaults(type)
+				: new QuotaPlanner.Shares(row.getTatkalPct(), row.getPremiumPct(), row.getLadiesPct(), row.getSeniorPct());
+	}
+
+	/** Marks each seat of a class with its quota. seats: every seat of that class, in coach-then-number order. */
+	private void applyQuotas(int trainNo, Seat_type type, List<CoachSeat> seats) {
+		List<QuotaPlanner.SeatRef> refs = seats.stream()
+				.map(seat -> new QuotaPlanner.SeatRef(seat.getId(), seat.getCoach().getId(), seat.getSeatNumber(),
+						seat.getBerthType()))
+				.toList();
+		Map<Long, Quota> plan = QuotaPlanner.plan(refs, sharesFor(trainNo, type));
+		for (CoachSeat seat : seats) {
+			seat.setQuota(plan.getOrDefault(seat.getId(), Quota.GN).name());
+		}
+		coachSeat_Repository.saveAll(seats);
+	}
+
+	private List<QuotaView> quotaViews(Train train) {
+		List<QuotaView> out = new ArrayList<>();
+		if (train.getCoaches() == null) {
+			return out;
+		}
+		java.util.Set<String> classes = new java.util.LinkedHashSet<>();
+		train.getCoaches().forEach(c -> classes.add(c.getCoachType()));
+		for (String typeName : classes) {
+			Seat_type type;
+			try {
+				type = Seat_type.valueOf(typeName);
+			} catch (IllegalArgumentException e) {
+				continue;
+			}
+			QuotaShare row = quotaShare_Repository.findByTrainNumberAndSeatType(train.getTrainNumber(), typeName);
+			QuotaPlanner.Shares sh = sharesFor(train.getTrainNumber(), type);
+			Map<String, Long> counts = new LinkedHashMap<>();
+			long total = 0;
+			for (Quota q : Quota.values()) {
+				long n = coachSeat_Repository.countSeatsInQuota(train.getTrainNumber(), typeName, q.name());
+				counts.put(q.name(), n);
+				total += n;
+			}
+			out.add(new QuotaView(typeName, sh.tatkal(), sh.premium(), sh.ladies(), sh.senior(), row != null, total,
+					counts));
+		}
+		return out;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public ResponseEntity<ResponseStructure<List<QuotaView>>> quotas(String token, int trainNo) {
+		ResponseStructure<List<QuotaView>> structure = new ResponseStructure<>();
+		if (!isAdmin(token)) {
+			return reply(structure, HttpStatus.UNAUTHORIZED, "Invalid or Expired Token, Please Login Again");
+		}
+		Train train = train_Repository.findByTrainNumber(trainNo);
+		if (train == null) {
+			return reply(structure, HttpStatus.NOT_FOUND, "Train not found");
+		}
+		structure.setData2(quotaViews(train));
+		return reply(structure, HttpStatus.OK, "Quotas");
+	}
+
+	/**
+	 * Saves the quota split per class and re-marks the seats. Body:
+	 * {"SLEEPER_CLASS": {"tatkalPct": 30, "premiumPct": 10, "ladiesPct": 5, "seniorPct": 8}, ...}
+	 * Tickets already sold keep their seats; the new split decides which quota each seat is sold in from now on.
+	 */
+	@Override
+	@Transactional
+	public ResponseEntity<ResponseStructure<List<QuotaView>>> saveQuotas(String token, int trainNo,
+			Map<String, Map<String, Integer>> body) {
+		ResponseStructure<List<QuotaView>> structure = new ResponseStructure<>();
+		if (!isAdmin(token)) {
+			return reply(structure, HttpStatus.UNAUTHORIZED, "Invalid or Expired Token, Please Login Again");
+		}
+		Train train = train_Repository.findByTrainNumber(trainNo);
+		if (train == null) {
+			return reply(structure, HttpStatus.NOT_FOUND, "Train not found");
+		}
+		if (body == null || body.isEmpty()) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "Send the quota split for at least one class");
+		}
+		java.util.Set<String> classes = new java.util.HashSet<>();
+		if (train.getCoaches() != null) {
+			train.getCoaches().forEach(c -> classes.add(c.getCoachType()));
+		}
+		for (Map.Entry<String, Map<String, Integer>> e : body.entrySet()) {
+			Seat_type type;
+			try {
+				type = Seat_type.valueOf(e.getKey().trim().toUpperCase(Locale.ROOT));
+			} catch (IllegalArgumentException ex) {
+				return reply(structure, HttpStatus.BAD_REQUEST, "Unknown class " + e.getKey());
+			}
+			if (!classes.contains(type.name())) {
+				return reply(structure, HttpStatus.BAD_REQUEST, "This train has no " + type.name() + " coaches");
+			}
+			Map<String, Integer> v = e.getValue() == null ? Map.of() : e.getValue();
+			QuotaPlanner.Shares sh = new QuotaPlanner.Shares(v.getOrDefault("tatkalPct", 0),
+					v.getOrDefault("premiumPct", 0), v.getOrDefault("ladiesPct", 0), v.getOrDefault("seniorPct", 0));
+			String problem = sh.problem(type);
+			if (problem != null) {
+				return reply(structure, HttpStatus.BAD_REQUEST, CoachLayout.shortCode(type) + ": " + problem);
+			}
+			QuotaShare row = quotaShare_Repository.findByTrainNumberAndSeatType(trainNo, type.name());
+			if (row == null) {
+				row = new QuotaShare();
+				row.setTrainNumber(trainNo);
+				row.setSeatType(type.name());
+			}
+			row.setTatkalPct(sh.tatkal());
+			row.setPremiumPct(sh.premium());
+			row.setLadiesPct(sh.ladies());
+			row.setSeniorPct(sh.senior());
+			quotaShare_Repository.save(row);
+			applyQuotas(trainNo, type, coachSeat_Repository.findSeatsInClass(trainNo, type.name()));
+		}
+		structure.setData2(quotaViews(train));
+		return reply(structure, HttpStatus.OK, "Quotas saved");
 	}
 
 	/** Valid, unexpired token whose role is admin */

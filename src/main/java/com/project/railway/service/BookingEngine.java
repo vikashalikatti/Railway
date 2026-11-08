@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.project.railway.dto.Booking;
+import com.project.railway.dto.ChartRun;
 import com.project.railway.dto.CoachSeat;
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Passenger;
@@ -28,9 +30,11 @@ import com.project.railway.dto.SeatOccupancy;
 import com.project.railway.dto.WaitlistCounter;
 import com.project.railway.helper.BookingException;
 import com.project.railway.helper.CoachLayout;
+import com.project.railway.helper.Quota;
 import com.project.railway.helper.SeatPicker;
 import com.project.railway.helper.Seat_type;
 import com.project.railway.repository.Book_Repository;
+import com.project.railway.repository.ChartRun_Repository;
 import com.project.railway.repository.CoachSeat_Repository;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.repository.Passenger_Repository;
@@ -73,6 +77,10 @@ public class BookingEngine {
 	private Book_Repository bookingRepository;
 	@Autowired
 	private Customer_Repository customerRepository;
+	@Autowired
+	private ChartRun_Repository chartRepository;
+	@Autowired
+	private TicketMailer mailer;
 
 	/* ------------------------------------------------------------------ booking */
 
@@ -104,6 +112,7 @@ public class BookingEngine {
 		booking.setToStop(plan.toStop());
 		booking.setJourneyDate(plan.date());
 		booking.setSeatType(plan.seatType().name());
+		booking.setQuota(plan.quota().name());
 		booking.setDistanceKm(plan.distanceKm());
 		booking.setTotalFare(plan.farePerPassenger() * requests.size());
 		booking.setBookedAt(LocalDateTime.now(IST));
@@ -127,11 +136,19 @@ public class BookingEngine {
 			booking.getPassengers().add(p);
 		}
 
-		// 4. Anyone without a seat joins the waitlist (counter row locked -> numbers never repeat)
+		// 4. Anyone without a seat joins this quota's waitlist (counter row locked -> numbers never repeat)
 		if (!waiting.isEmpty()) {
-			WaitlistCounter counter = lockCounter(plan.trainNumber(), plan.date(), plan.seatType().name());
+			int seated = requests.size() - waiting.size();
+			if (!plan.waitlist()) {
+				String left = seated == 0 ? "No seats are left" : "Only " + seated + (seated == 1 ? " seat is" : " seats are") + " left";
+				throw new BookingException(HttpStatus.CONFLICT, plan.anyQuota()
+						? left + ", and the waitlist closed when the chart was prepared."
+						: left + " in " + plan.quota().label + " quota, which has no waitlist. Try General quota.");
+			}
+			String key = plan.quota().counterKey(plan.seatType());
+			WaitlistCounter counter = lockCounter(plan.trainNumber(), plan.date(), key);
 			long alreadyWaiting = passengerRepository.countWaitlisted(plan.trainNumber(), plan.date(),
-					plan.seatType().name());
+					plan.seatType().name(), plan.quota().name());
 			if (alreadyWaiting + waiting.size() > MAX_WAITLIST) {
 				throw new BookingException(HttpStatus.CONFLICT,
 						"Not enough seats, and the waitlist for this class is full (REGRET). Try another class or date.");
@@ -154,6 +171,7 @@ public class BookingEngine {
 			}
 		}
 		occupancyRepository.saveAllAndFlush(occupancies); // flush now so any DB error happens inside this method
+		mailer.sendAfterCommit(mailer.ticket(booking, TicketMailer.Event.BOOKED));
 		return booking;
 	}
 
@@ -186,7 +204,9 @@ public class BookingEngine {
 		if (!seatIds.isEmpty()) {
 			coachSeatRepository.lockByIds(seatIds);
 		}
-		lockCounter(booking.getTrainNumber(), booking.getJourneyDate(), booking.getSeatType());
+		Seat_type cancelType = Seat_type.valueOf(booking.getSeatType());
+		Quota quota = Quota.parse(booking.getQuota());
+		lockCounter(booking.getTrainNumber(), booking.getJourneyDate(), quota.counterKey(cancelType));
 
 		if (!confirmed.isEmpty()) {
 			occupancyRepository
@@ -194,29 +214,39 @@ public class BookingEngine {
 		}
 		for (Passenger p : targets) {
 			p.setStatus(Passenger.CANCELLED);
+			p.setCancelReason(Passenger.CANCELLED_BY_USER);
 			p.setSeat(null); // coach and seat number are kept on the passenger for the record
 		}
 		booking.refreshStatus();
 		bookingRepository.saveAndFlush(booking);
+		mailer.sendAfterCommit(mailer.ticket(booking, TicketMailer.Event.CANCELLED));
 
 		if (!confirmed.isEmpty()) {
-			promoteWaitlist(booking.getTrainNumber(), booking.getJourneyDate(),
-					Seat_type.valueOf(booking.getSeatType()));
+			// Before the chart a freed seat stays in its quota, so that quota's waitlist gets it.
+			// After the chart nobody is waiting any more.
+			if (quota.hasWaitlist) {
+				promoteWaitlist(booking.getTrainNumber(), booking.getJourneyDate(), cancelType, quota, false, true);
+			}
 		}
 		return booking;
 	}
 
 	/**
-	 * Gives freed seats to waitlisted passengers, lowest WL number first.
-	 * Caller must hold the waitlist counter lock.
+	 * Gives free seats to one quota's waitlisted passengers, lowest WL number first.
+	 * anyQuota: seats of every quota may be used (first chart). notify: email the passengers
+	 * who got a seat, once the transaction commits.
+	 * Caller must hold that quota's waitlist counter lock. Returns the bookings that changed.
 	 */
-	private void promoteWaitlist(int trainNumber, LocalDate date, Seat_type type) {
-		List<Passenger> waiting = passengerRepository.findWaitlistForUpdate(trainNumber, date, type.name());
-		Set<Booking> touched = new HashSet<>();
+	private Set<Booking> promoteWaitlist(int trainNumber, LocalDate date, Seat_type type, Quota quota,
+			boolean anyQuota, boolean notify) {
+		List<Passenger> waiting = passengerRepository.findWaitlistForUpdate(trainNumber, date, type.name(),
+				quota.name());
+		Set<Booking> touched = new LinkedHashSet<>();
 		for (Passenger p : waiting) {
 			Booking b = p.getBooking();
 			JourneyPlan plan = new JourneyPlan(trainNumber, b.getTrainName(), type, date, b.getFromStop(),
-					b.getToStop(), b.getFromStation(), b.getToStation(), b.getDistanceKm(), p.getFare());
+					b.getToStop(), b.getFromStation(), b.getToStation(), b.getDistanceKm(), p.getFare(), quota,
+					anyQuota, false, null);
 			// Never wait here: we hold the counter lock, and waiting could deadlock with a booking
 			List<CoachSeat> seats = lockFreeSeats(plan, 1, false);
 			if (seats.isEmpty()) {
@@ -233,7 +263,83 @@ public class BookingEngine {
 		}
 		for (Booking b : touched) {
 			b.refreshStatus();
+			if (notify) {
+				mailer.sendAfterCommit(mailer.ticket(b, TicketMailer.Event.CONFIRMED_FROM_WAITLIST));
+			}
 		}
+		return touched;
+	}
+
+	/* ------------------------------------------------------------ charts */
+
+	/**
+	 * First chart for one train run:
+	 *  1. unsold seats of every quota are released and given to the waitlist (General first, then Tatkal),
+	 *  2. anyone still waiting is cancelled,
+	 *  3. every passenger is emailed their final status (after the transaction commits).
+	 * Runs once: the chart_run row is locked and its stage checked. Returns false if already prepared.
+	 */
+	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 60)
+	public boolean prepareFirstChart(int trainNumber, LocalDate date) {
+		chartRepository.ensureExists(trainNumber, date);
+		ChartRun run = chartRepository.lock(trainNumber, date);
+		if (run.getStage() >= ChartRun.FIRST) {
+			return false;
+		}
+
+		// 1. Release quota seats to the waitlist
+		Map<String, List<Quota>> waitingByClass = new LinkedHashMap<>();
+		for (Object[] row : passengerRepository.findWaitingClasses(trainNumber, date)) {
+			waitingByClass.computeIfAbsent((String) row[0], k -> new ArrayList<>()).add(Quota.parse((String) row[1]));
+		}
+		for (Map.Entry<String, List<Quota>> e : waitingByClass.entrySet()) {
+			Seat_type type = Seat_type.valueOf(e.getKey());
+			for (Quota q : List.of(Quota.GN, Quota.TQ)) { // General waitlist first, as on Indian Railways
+				if (e.getValue().contains(q)) {
+					lockCounter(trainNumber, date, q.counterKey(type));
+					promoteWaitlist(trainNumber, date, type, q, true, false);
+				}
+			}
+		}
+
+		// 2. Anyone still waiting doesn't travel
+		Set<Booking> changed = new LinkedHashSet<>();
+		for (Passenger p : passengerRepository.findAllWaitingForUpdate(trainNumber, date)) {
+			p.setStatus(Passenger.CANCELLED);
+			p.setCancelReason(Passenger.CANCELLED_AT_CHART);
+			changed.add(p.getBooking());
+		}
+		changed.forEach(Booking::refreshStatus);
+
+		run.setStage(ChartRun.FIRST);
+		run.setFirstPreparedAt(LocalDateTime.now(IST));
+
+		// 3. Everyone who still had a ticket at charting hears their final status
+		for (Booking b : bookingRepository.findByTrainNumberAndJourneyDate(trainNumber, date)) {
+			boolean hadTicket = b.getPassengers().stream()
+					.anyMatch(p -> !Passenger.CANCELLED_BY_USER.equals(p.getCancelReason())
+							&& !(Passenger.CANCELLED.equals(p.getStatus()) && p.getCancelReason() == null));
+			if (hadTicket) {
+				mailer.sendAfterCommit(mailer.ticket(b, TicketMailer.Event.CHART_PREPARED));
+			}
+		}
+		return true;
+	}
+
+	/** Final chart: booking closes. Returns false if already prepared. */
+	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 15)
+	public boolean prepareFinalChart(int trainNumber, LocalDate date) {
+		chartRepository.ensureExists(trainNumber, date);
+		ChartRun run = chartRepository.lock(trainNumber, date);
+		if (run.getStage() >= ChartRun.FINAL) {
+			return false;
+		}
+		if (run.getStage() < ChartRun.FIRST) {
+			return false; // the first chart has to come first; the scheduler runs it next
+		}
+		run.setStage(ChartRun.FINAL);
+		run.setFinalPreparedAt(LocalDateTime.now(IST));
+		return true;
 	}
 
 	/* ------------------------------------------------------------ seat locking */
@@ -258,8 +364,10 @@ public class BookingEngine {
 		exclude.add(-1L); // NOT IN () with an empty list is invalid SQL
 
 		Map<Integer, Integer> freeByCoach = new LinkedHashMap<>();
+		String quota = plan.quota().name();
+		boolean anyQuota = plan.anyQuota();
 		for (Object[] row : coachSeatRepository.countFreeByCoach(train, type, plan.date(), plan.fromStop(),
-				plan.toStop())) {
+				plan.toStop(), quota, anyQuota)) {
 			freeByCoach.put(((Number) row[0]).intValue(), ((Number) row[1]).intValue());
 		}
 		if (freeByCoach.isEmpty()) {
@@ -270,13 +378,13 @@ public class BookingEngine {
 		Integer coachId = SeatPicker.pickCoach(freeByCoach, wanted);
 		if (coachId != null) {
 			addVerified(result, exclude, coachSeatRepository.lockFreeInCoach(coachId, exclude, plan.date(),
-					plan.fromStop(), plan.toStop(), wanted + SLACK), plan);
+					plan.fromStop(), plan.toStop(), quota, anyQuota, wanted + SLACK), plan);
 		}
 
 		// Pass 2
 		for (int round = 0; round < 3 && result.size() < wanted; round++) {
 			List<CoachSeat> got = coachSeatRepository.lockFreeInClass(train, type, exclude, plan.date(),
-					plan.fromStop(), plan.toStop(), wanted - result.size());
+					plan.fromStop(), plan.toStop(), quota, anyQuota, wanted - result.size());
 			if (got.isEmpty()) {
 				break;
 			}
@@ -285,11 +393,11 @@ public class BookingEngine {
 
 		// Pass 3
 		if (waitIfNeeded && result.size() < wanted
-				&& coachSeatRepository.countFree(train, type, plan.date(), plan.fromStop(), plan.toStop()) > result
-						.size()) {
+				&& coachSeatRepository.countFree(train, type, plan.date(), plan.fromStop(), plan.toStop(), quota,
+						anyQuota) > result.size()) {
 			for (int round = 0; round < 3 && result.size() < wanted; round++) {
 				List<CoachSeat> got = coachSeatRepository.lockFreeInClassWaiting(train, type, exclude, plan.date(),
-						plan.fromStop(), plan.toStop(), wanted - result.size());
+						plan.fromStop(), plan.toStop(), quota, anyQuota, wanted - result.size());
 				if (got.isEmpty()) {
 					break;
 				}

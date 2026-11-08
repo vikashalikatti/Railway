@@ -7,6 +7,7 @@ import java.util.Map;
 import org.springframework.http.ResponseEntity;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.QuotaView;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Station;
@@ -44,4 +45,9 @@ public interface Admin_Service {
 	ResponseEntity<ResponseStructure<List<Integer>>> distances(List<String> codes, String token);
 
 	ResponseEntity<ResponseStructure<Admin>> logout(String token, boolean everywhere);
+
+	ResponseEntity<ResponseStructure<List<QuotaView>>> quotas(String token, int trainNo);
+
+	ResponseEntity<ResponseStructure<List<QuotaView>>> saveQuotas(String token, int trainNo,
+			Map<String, Map<String, Integer>> body);
 }

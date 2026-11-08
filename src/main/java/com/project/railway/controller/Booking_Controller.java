@@ -46,19 +46,22 @@ public class Booking_Controller {
 	@GetMapping("/select_class/{train_no}/{start}/{end}")
 	public ResponseEntity<ResponseStructure<Availability>> availability(@RequestParam String seat_type,
 			@PathVariable int train_no, @RequestHeader("Bearer") String token, @RequestParam String date,
-			@PathVariable String start, @PathVariable String end) {
-		return bookingService.availability(token, train_no, seat_type, date, start, end);
+			@PathVariable String start, @PathVariable String end,
+			@RequestParam(defaultValue = "GN") String quota) {
+		return bookingService.availability(token, train_no, seat_type, date, start, end, quota);
 	}
 
 	/**
 	 * Books up to 6 passengers. Body: [{"name":"Vikas","age":25,"gender":"Male","berthPreference":"LOWER"}]
-	 * book_date is M/d/yyyy; from / to are station names on the train's route.
+	 * book_date is M/d/yyyy; from / to are station names on the train's route;
+	 * quota is GN (default), TQ (Tatkal), PT (Premium Tatkal), LD (Ladies) or SS (Senior citizen).
 	 */
 	@PostMapping("/booking/{train_no}")
 	public ResponseEntity<ResponseStructure<Booking>> book(@RequestBody List<PassengerRequest> passengers,
 			@RequestHeader("Bearer") String token, @PathVariable int train_no, @RequestParam String seat_type,
-			@RequestParam String book_date, @RequestParam String from, @RequestParam String to) {
-		return bookingService.book(token, train_no, seat_type, book_date, from, to, passengers);
+			@RequestParam String book_date, @RequestParam String from, @RequestParam String to,
+			@RequestParam(defaultValue = "GN") String quota) {
+		return bookingService.book(token, train_no, seat_type, book_date, from, to, quota, passengers);
 	}
 
 	@GetMapping("/pnr/{pnr}")

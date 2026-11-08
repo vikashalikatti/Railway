@@ -2,6 +2,7 @@ package com.project.railway.service;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.project.railway.dto.Availability;
 import com.project.railway.dto.Booking;
+import com.project.railway.dto.ChartRun;
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Passenger;
 import com.project.railway.dto.PassengerRequest;
@@ -34,9 +36,12 @@ import com.project.railway.helper.BookingException;
 import com.project.railway.helper.CoachLayout;
 import com.project.railway.helper.FareCalculator;
 import com.project.railway.helper.JwtUtil;
+import com.project.railway.helper.Quota;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Seat_type;
+import com.project.railway.helper.TatkalRules;
 import com.project.railway.repository.Book_Repository;
+import com.project.railway.repository.ChartRun_Repository;
 import com.project.railway.repository.CoachSeat_Repository;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.repository.Passenger_Repository;
@@ -74,6 +79,8 @@ public class BookingService {
 	private Book_Repository bookingRepository;
 	@Autowired
 	private StationDirectory stationDirectory;
+	@Autowired
+	private ChartRun_Repository chartRepository;
 
 	/** A train that serves the search, with the positions of the passenger's boarding and destination stops */
 	public record TrainMatch(Train train, int fromStop, int toStop, String fromStation, String toStation) {
@@ -83,18 +90,34 @@ public class BookingService {
 
 	@Transactional(readOnly = true)
 	public ResponseEntity<ResponseStructure<Availability>> availability(String token, int trainNo, String seatType,
-			String date, String from, String to) {
+			String date, String from, String to, String quotaText) {
 		try {
 			customerFrom(token);
-			JourneyPlan plan = plan(trainNo, seatType, date, from, to);
+			JourneyPlan plan = plan(trainNo, seatType, date, from, to, quotaText);
 			String type = plan.seatType().name();
+			Quota quota = plan.quota();
 			long available = coachSeatRepository.countFree(trainNo, type, plan.date(), plan.fromStop(),
-					plan.toStop());
-			long waitlisted = passengerRepository.countWaitlisted(trainNo, plan.date(), type);
-			String status = available > 0 ? String.format("AVAILABLE-%04d", available)
-					: waitlisted >= BookingEngine.MAX_WAITLIST ? "REGRET" : "WL " + (waitlisted + 1);
+					plan.toStop(), quota.name(), plan.anyQuota());
+			long waitlisted = passengerRepository.countWaitlisted(trainNo, plan.date(), type, quota.name());
+			String status;
+			if (plan.closedReason() != null) {
+				status = "NOT AVAILABLE";
+			} else if (available > 0) {
+				status = String.format("AVAILABLE-%04d", available);
+			} else if (!plan.waitlist()) {
+				status = plan.anyQuota() ? "CHART PREPARED" : "NOT AVAILABLE";
+			} else if (waitlisted >= BookingEngine.MAX_WAITLIST) {
+				status = "REGRET";
+			} else {
+				status = quota.wlPrefix + " " + (waitlisted + 1);
+			}
+			String note = plan.closedReason();
+			if (note == null && available == 0 && !plan.waitlist()) {
+				note = plan.anyQuota() ? "The chart has been prepared and no seats are free for your journey."
+						: quota.label + " quota has no seats left and no waitlist. Try General quota.";
+			}
 			Availability a = new Availability(type, available, waitlisted, plan.farePerPassenger(), status,
-					CoachLayout.preferences(plan.seatType()));
+					CoachLayout.preferences(plan.seatType()), quota.name(), note, plan.anyQuota());
 			return ok(a, available > 0 ? "Seats available" : "Waitlist");
 		} catch (BookingException e) {
 			return error(e);
@@ -102,11 +125,19 @@ public class BookingService {
 	}
 
 	public ResponseEntity<ResponseStructure<Booking>> book(String token, int trainNo, String seatType, String date,
-			String from, String to, List<PassengerRequest> passengers) {
+			String from, String to, String quotaText, List<PassengerRequest> passengers) {
 		try {
 			Customer customer = customerFrom(token);
-			JourneyPlan plan = plan(trainNo, seatType, date, from, to);
+			JourneyPlan plan = plan(trainNo, seatType, date, from, to, quotaText);
+			if (plan.closedReason() != null) {
+				throw new BookingException(HttpStatus.CONFLICT, plan.closedReason());
+			}
 			checkPassengers(passengers, plan.seatType());
+			String notEligible = plan.quota().eligibility(passengers.stream()
+					.map(p -> new Quota.Traveller(p.getAge(), p.getGender())).toList());
+			if (notEligible != null) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, notEligible);
+			}
 			Booking booking = withRetry(() -> engine.book(customer.getId(), plan, passengers));
 			String message = switch (booking.getStatus()) {
 			case Booking.CONFIRMED -> "Booking confirmed. PNR " + booking.getBookingId();
@@ -256,7 +287,7 @@ public class BookingService {
 	}
 
 	/** Checks the train, class, date and stations, and works out distance and fare */
-	JourneyPlan plan(int trainNo, String seatTypeText, String dateText, String from, String to) {
+	JourneyPlan plan(int trainNo, String seatTypeText, String dateText, String from, String to, String quotaText) {
 		Train train = trainRepository.findByTrainNumber(trainNo);
 		if (train == null) {
 			throw new BookingException(HttpStatus.NOT_FOUND, "Train " + trainNo + " doesn't exist.");
@@ -322,11 +353,68 @@ public class BookingService {
 		for (int i = fromStop + 1; i <= toStop; i++) {
 			distance += stops.get(i).getKm();
 		}
+		Quota quota;
+		try {
+			quota = Quota.parse(quotaText);
+		} catch (IllegalArgumentException e) {
+			throw new BookingException(HttpStatus.BAD_REQUEST, "Unknown quota " + quotaText + ".");
+		}
+		if (!quota.offeredIn(seatType)) {
+			throw new BookingException(HttpStatus.BAD_REQUEST,
+					quota.label + " quota isn't offered in " + CoachLayout.shortCode(seatType) + ".");
+		}
+
+		// Charts: the first chart (4 hours before the train starts) frees every quota's unsold seats and
+		// ends the waitlist; the final chart (30 minutes before the passenger's train leaves) ends booking.
+		LocalDateTime now = LocalDateTime.now(IST);
+		LocalTime startTime = stops.get(0).getDepartureTime() != null ? stops.get(0).getDepartureTime() : LocalTime.MIDNIGHT;
+		LocalTime boardTime = stops.get(fromStop).getDepartureTime() != null ? stops.get(fromStop).getDepartureTime()
+				: startTime;
+		ChartRun run = chartRepository.findByTrainNumberAndJourneyDate(trainNo, date);
+		int stage = run == null ? ChartRun.NOT_PREPARED : run.getStage();
+		boolean firstChartDue = !now.isBefore(TatkalRules.firstChartAt(date.atTime(startTime)));
+
+		String closed = null;
+		boolean anyQuota = false;
+		boolean waitlist = quota.hasWaitlist;
+		if (!now.isBefore(TatkalRules.finalChartAt(date.atTime(boardTime)))) {
+			closed = "Booking has closed: the final chart is prepared 30 minutes before departure.";
+		} else if (firstChartDue || stage >= ChartRun.FIRST) {
+			if (stage < ChartRun.FIRST) {
+				closed = "The chart for this train is being prepared. Try again in a minute.";
+			} else {
+				anyQuota = true; // every quota's unsold seats are open now
+				waitlist = false;
+				if (quota != Quota.GN) {
+					closed = "The chart has been prepared, so only General quota is open for the seats still free.";
+				}
+			}
+		} else if (quota.isTatkal()) {
+			LocalDateTime opens = TatkalRules.opensAt(date, seatType);
+			if (now.isBefore(opens)) {
+				closed = quota.label + " booking for this date opens on "
+						+ opens.format(DateTimeFormatter.ofPattern("d MMM 'at' HH:mm", Locale.ENGLISH)) + ".";
+			}
+		}
+		if (closed == null && !anyQuota && quota != Quota.GN
+				&& coachSeatRepository.countSeatsInQuota(trainNo, seatType.name(), quota.name()) == 0) {
+			closed = "This train has no " + quota.label + " seats in " + CoachLayout.shortCode(seatType) + ".";
+		}
+
 		double baseFare = train.getRoute() != null ? train.getRoute().getPrice() : 0;
 		double fare = FareCalculator.perPassenger(seatType, distance, baseFare);
+		if (quota == Quota.PT) {
+			long total = coachSeatRepository.countSeatsInQuota(trainNo, seatType.name(), Quota.PT.name());
+			long free = coachSeatRepository.countFree(trainNo, seatType.name(), date, fromStop, toStop,
+					Quota.PT.name(), false);
+			fare = TatkalRules.fare(quota, seatType, fare, Math.max(0, total - free), total);
+		} else {
+			fare = TatkalRules.fare(quota, seatType, fare, 0, 0);
+		}
 
 		return new JourneyPlan(trainNo, train.getTrainName(), seatType, date, fromStop, toStop,
-				stops.get(fromStop).getStationName(), stops.get(toStop).getStationName(), distance, fare);
+				stops.get(fromStop).getStationName(), stops.get(toStop).getStationName(), distance, fare, quota,
+				anyQuota, waitlist, closed);
 	}
 
 	private void checkPassengers(List<PassengerRequest> passengers, Seat_type type) {
@@ -420,10 +508,14 @@ public class BookingService {
 	}
 
 	private void fillWaitlistPositions(Booking b) {
+		ChartRun run = chartRepository.findByTrainNumberAndJourneyDate(b.getTrainNumber(), b.getJourneyDate());
+		int stage = run == null ? ChartRun.NOT_PREPARED : run.getStage();
+		b.setChartStatus(stage >= ChartRun.FINAL ? "FINAL" : stage >= ChartRun.FIRST ? "PREPARED" : "NOT_PREPARED");
+		String quota = Quota.parse(b.getQuota()).name();
 		for (Passenger p : b.getPassengers()) {
 			if (Passenger.WAITLISTED.equals(p.getStatus()) && p.getWlNumber() != null) {
 				long ahead = passengerRepository.countWaitlistedBefore(b.getTrainNumber(), b.getJourneyDate(),
-						b.getSeatType(), p.getWlNumber());
+						b.getSeatType(), quota, p.getWlNumber());
 				p.setCurrentWlPosition((int) ahead + 1);
 			}
 		}
