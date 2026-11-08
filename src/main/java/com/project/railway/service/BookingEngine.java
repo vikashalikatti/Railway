@@ -31,6 +31,7 @@ import com.project.railway.dto.WaitlistCounter;
 import com.project.railway.helper.BookingException;
 import com.project.railway.helper.CoachLayout;
 import com.project.railway.helper.Quota;
+import com.project.railway.helper.TravelRules;
 import com.project.railway.helper.SeatPicker;
 import com.project.railway.helper.Seat_type;
 import com.project.railway.repository.Book_Repository;
@@ -88,14 +89,20 @@ public class BookingEngine {
 	public Booking book(int customerId, JourneyPlan plan, List<PassengerRequest> requests) {
 		Customer customer = customerRepository.getReferenceById(customerId);
 
+		// Infants, and children 5-11 who chose no berth, travel with the group without a seat
+		long needSeats = requests.stream()
+				.filter(r -> !TravelRules.travelsWithoutBerth(r.getAge(), r.isNoBerth())).count();
+
 		// 1. Lock free seats for this segment (may lock a few more than needed, see SLACK)
-		List<CoachSeat> locked = lockFreeSeats(plan, requests.size(), true);
+		List<CoachSeat> locked = lockFreeSeats(plan, (int) needSeats, true);
 
 		// 2. Decide who sits where
 		List<SeatPicker.Traveller> travellers = new ArrayList<>();
 		for (int i = 0; i < requests.size(); i++) {
 			PassengerRequest r = requests.get(i);
-			travellers.add(new SeatPicker.Traveller(i, r.getAge(), r.getBerthPreference()));
+			if (!TravelRules.travelsWithoutBerth(r.getAge(), r.isNoBerth())) {
+				travellers.add(new SeatPicker.Traveller(i, r.getAge(), r.getBerthPreference()));
+			}
 		}
 		Map<Long, CoachSeat> seatsById = locked.stream()
 				.collect(Collectors.toMap(CoachSeat::getId, s -> s, (a, b) -> a, LinkedHashMap::new));
@@ -114,7 +121,7 @@ public class BookingEngine {
 		booking.setSeatType(plan.seatType().name());
 		booking.setQuota(plan.quota().name());
 		booking.setDistanceKm(plan.distanceKm());
-		booking.setTotalFare(plan.farePerPassenger() * requests.size());
+		double total = 0;
 		booking.setBookedAt(LocalDateTime.now(IST));
 
 		List<Passenger> waiting = new ArrayList<>();
@@ -126,19 +133,29 @@ public class BookingEngine {
 			p.setAge(r.getAge());
 			p.setGender(r.getGender());
 			p.setBerthPreference(r.getBerthPreference());
-			p.setFare(plan.farePerPassenger());
+			boolean noBerth = TravelRules.travelsWithoutBerth(r.getAge(), r.isNoBerth());
+			TravelRules.Meal meal = TravelRules.Meal.parse(r.getMeal());
+			p.setNoBerth(noBerth);
+			p.setMeal(meal.name());
+			p.setBedroll(r.isBedroll() && TravelRules.bedrollOffered(plan.seatType()));
+			p.setFare(TravelRules.ticketFare(r.getAge(), r.isNoBerth(), plan.farePerPassenger()));
+			p.setExtrasFare(TravelRules.extras(meal, Boolean.TRUE.equals(p.getBedroll()), plan.seatType()));
+			total += p.getFare() + p.getExtrasFare();
 			SeatPicker.Seat seat = assigned.get(i);
-			if (seat != null) {
+			if (noBerth) {
+				p.setStatus(Passenger.NO_BERTH); // travels with the group; no seat, no waitlist number
+			} else if (seat != null) {
 				confirm(p, seatsById.get(seat.id()));
 			} else {
 				waiting.add(p);
 			}
 			booking.getPassengers().add(p);
+			booking.setTotalFare(total);
 		}
 
 		// 4. Anyone without a seat joins this quota's waitlist (counter row locked -> numbers never repeat)
 		if (!waiting.isEmpty()) {
-			int seated = requests.size() - waiting.size();
+			int seated = (int) needSeats - waiting.size();
 			if (!plan.waitlist()) {
 				String left = seated == 0 ? "No seats are left" : "Only " + seated + (seated == 1 ? " seat is" : " seats are") + " left";
 				throw new BookingException(HttpStatus.CONFLICT, plan.anyQuota()
@@ -217,6 +234,7 @@ public class BookingEngine {
 			p.setCancelReason(Passenger.CANCELLED_BY_USER);
 			p.setSeat(null); // coach and seat number are kept on the passenger for the record
 		}
+		cancelOrphanedNoBerth(booking, Passenger.CANCELLED_BY_USER);
 		booking.refreshStatus();
 		bookingRepository.saveAndFlush(booking);
 		mailer.sendAfterCommit(mailer.ticket(booking, TicketMailer.Event.CANCELLED));
@@ -326,6 +344,7 @@ public class BookingEngine {
 			p.setCancelReason(Passenger.CANCELLED_AT_CHART);
 			changed.add(p.getBooking());
 		}
+		changed.forEach(b -> cancelOrphanedNoBerth(b, Passenger.CANCELLED_AT_CHART));
 		changed.forEach(Booking::refreshStatus);
 
 		run.setStage(ChartRun.FIRST);
@@ -443,6 +462,57 @@ public class BookingEngine {
 	private WaitlistCounter lockCounter(int trainNumber, LocalDate date, String seatType) {
 		counterRepository.ensureExists(trainNumber, date, seatType);
 		return Objects.requireNonNull(counterRepository.lock(trainNumber, date, seatType));
+	}
+
+	/** A child or infant without a berth can't travel alone: cancel them when nobody with a berth is left */
+	static void cancelOrphanedNoBerth(Booking b, String reason) {
+		boolean someoneTravels = b.getPassengers().stream().anyMatch(p -> Passenger.CONFIRMED.equals(p.getStatus())
+				|| Passenger.WAITLISTED.equals(p.getStatus()));
+		if (!someoneTravels) {
+			for (Passenger p : b.getPassengers()) {
+				if (Passenger.NO_BERTH.equals(p.getStatus())) {
+					p.setStatus(Passenger.CANCELLED);
+					p.setCancelReason(reason);
+				}
+			}
+		}
+	}
+
+	/* ------------------------------------------------------------------ train runs */
+
+	/**
+	 * The railway cancelled this train on this date: every passenger still travelling is cancelled,
+	 * their seats are freed, the booking records a full refund, and everyone is emailed.
+	 * Returns how many passengers were affected.
+	 */
+	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 60)
+	public int cancelRun(int trainNumber, LocalDate date, String reason) {
+		int affected = 0;
+		for (Booking b : bookingRepository.findByTrainNumberAndJourneyDate(trainNumber, date)) {
+			List<Passenger> travelling = b.getPassengers().stream()
+					.filter(p -> !Passenger.CANCELLED.equals(p.getStatus())).toList();
+			if (travelling.isEmpty()) {
+				continue;
+			}
+			List<Long> seated = travelling.stream().filter(p -> Passenger.CONFIRMED.equals(p.getStatus()))
+					.map(Passenger::getId).toList();
+			if (!seated.isEmpty()) {
+				occupancyRepository.deleteByPassengerIds(seated);
+			}
+			double refund = 0;
+			for (Passenger p : travelling) {
+				refund += p.getFare() + (p.getExtrasFare() == null ? 0 : p.getExtrasFare());
+				p.setStatus(Passenger.CANCELLED);
+				p.setCancelReason(Passenger.CANCELLED_TRAIN);
+				p.setSeat(null);
+			}
+			b.setRefundAmount((b.getRefundAmount() == null ? 0 : b.getRefundAmount()) + refund);
+			b.refreshStatus();
+			bookingRepository.save(b);
+			affected += travelling.size();
+			mailer.sendAfterCommit(mailer.ticket(b, TicketMailer.Event.TRAIN_CANCELLED, reason));
+		}
+		return affected;
 	}
 
 	/* ------------------------------------------------------------------ helpers */

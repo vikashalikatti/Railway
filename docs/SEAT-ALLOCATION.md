@@ -220,3 +220,11 @@ General can be on the waitlist while Tatkal seats are still unsold.
 passenger gets a seat, on cancellation, and when the chart is prepared. The content is read inside the
 booking transaction and the email is sent after it commits, in the background, so a rollback never
 sends an email and a mail problem never affects a booking.
+
+## Children, extras and train runs (backend v1.9.0)
+- Under 5: no berth, no fare, status NB. Ages 5–11 with "no berth": half fare, status NB.
+  No-berth passengers never take a seat or a waitlist number.
+- Extras (meal, bedroll) are added to each passenger's fare as extras_fare.
+- A cancelled run (train_run.cancelled) refuses new bookings; cancelling it marks every passenger
+  CANCELLED with reason TRAIN and records booking.refund_amount.
+- Running status lives in train_run (delay_minutes, current_stop, departed).

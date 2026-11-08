@@ -99,12 +99,17 @@ public class Booking {
 	@OrderBy("id ASC")
 	private List<Passenger> passengers = new ArrayList<>();
 
+	/** Money due back (train cancelled by the railway: the full fare of everyone still travelling) */
+	@Column(name = "refund_amount")
+	private Double refundAmount;
+
 	/** NOT_PREPARED, PREPARED (first chart) or FINAL (filled in when a PNR is read; not stored) */
 	@jakarta.persistence.Transient
 	private String chartStatus;
 
 	/** Works out the overall status from the passengers' statuses */
 	public void refreshStatus() {
+		// passengers without a berth (NB) follow the rest of the booking and don't decide its status
 		long cnf = passengers.stream().filter(p -> Passenger.CONFIRMED.equals(p.getStatus())).count();
 		long wl = passengers.stream().filter(p -> Passenger.WAITLISTED.equals(p.getStatus())).count();
 		if (cnf == 0 && wl == 0) {

@@ -1,5 +1,31 @@
 # Changelog — Railway backend
 
+## v1.9.0 — 9 Nov 2026
+Passenger and admin features. Use with frontend v1.14.0. New tables saved_passenger and train_run,
+and new columns on passenger (no_berth, meal, bedroll, extras_fare) and booking (refund_amount),
+are added by Hibernate.
+- GET /customer/pnr-status/{pnr} (public): train, journey and each passenger's booking and current
+  status, numbered 1, 2, 3. No names or ages.
+- Saved passengers: GET/POST /customer/saved_passengers, DELETE /customer/saved_passengers/{id}
+  (up to 20 per customer; saving the same name again updates it).
+- Children: under 5 travel free without a berth (status NB, at most 2 per ticket, don't count
+  toward the passenger limit). Ages 5–11 may choose "no berth" for half fare. A ticket needs at
+  least one passenger with a berth; if all berth holders are cancelled, the no-berth ones are too.
+- Meals (Veg ₹120, Non-veg ₹150, Jain ₹120) and bedroll (₹150 in Sleeper; included in AC berth
+  classes) per passenger; stored, charged and shown on the ticket and emails.
+- GET /customer/connections?from&to&date: journeys with one change on the same day, 30 min to 8 h
+  wait, earliest arrival first (up to 10).
+- POST /admin/runs/{train}/cancel {date, reason}: cancels every passenger on that date, frees the
+  berths, records a full refund (fare + extras) on each booking and emails everyone. Bookings for a
+  cancelled run are refused.
+- POST /admin/runs/{train}/reschedule {date, delayMinutes, reason}: emails each passenger the new
+  departure time from their boarding station.
+- POST /admin/runs/{train}/position {date, stop, departed, delayMinutes} and
+  GET /customer/running/{train}?date (public): live running status shown on tickets.
+- GET /admin/reports?from&to (up to 92 days): totals, occupancy and revenue per train and class,
+  and a day-by-day table of bookings, cancellations and waitlist results.
+- Refunds are recorded only; no payment gateway yet.
+
 ## v1.8.0 — 9 Nov 2026
 Coaches by date (rush days). Use with frontend v1.13.0.
 - Coaches have optional "runs from" / "runs until" dates (coach.valid_from, coach.valid_to, added

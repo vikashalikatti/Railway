@@ -23,6 +23,12 @@
             <p style="margin:0 0 4px; font-size:22px; font-weight:bold; color:#112650;">${title}</p>
             <p style="margin:0 0 4px; font-size:15px; line-height:1.5;">Hello ${t.customerName()!"there"},</p>
             <p style="margin:0; font-size:15px; line-height:1.5; color:#3d4757;">${intro}</p>
+            <#if t.note()??>
+            <p style="margin:12px 0 0; padding:10px 12px; background-color:#fff1e6; border-left:4px solid #f47b20; font-size:15px; line-height:1.5;">${t.note()}</p>
+            </#if>
+            <#if t.refund()??>
+            <p style="margin:12px 0 0; font-size:15px;"><strong>Refund: ${t.refund()}</strong></p>
+            </#if>
         </td>
     </tr>
 
