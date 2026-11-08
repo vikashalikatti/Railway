@@ -43,35 +43,36 @@ public class EmailService {
 	@Autowired
 	private Configuration configuration;
 
+	@org.springframework.beans.factory.annotation.Value("${spring.mail.username}")
+	private String fromAddress;
+
 	
+	/**
+	 * Map lookup for the login alert. Off unless a real OpenCage key is set (opencage.api-key);
+	 * with the placeholder key every login would make a failing call to the internet.
+	 */
+	@org.springframework.beans.factory.annotation.Value("${opencage.api-key:}")
+	private String openCageKey;
+
 	private String getGeolocationDetails(String location) {
-		String apiKey = "YOUR_API_KEY";
-
-		JOpenCageGeocoder jOpenCageGeocoder = new JOpenCageGeocoder(apiKey);
-
+		if (openCageKey == null || openCageKey.isBlank()) {
+			return "";
+		}
 		try {
+			JOpenCageGeocoder jOpenCageGeocoder = new JOpenCageGeocoder(openCageKey);
 			JOpenCageForwardRequest request = new JOpenCageForwardRequest(location);
 			request.setMinConfidence(1);
 			request.setNoAnnotations(false);
 			request.setNoDedupe(true);
-
 			JOpenCageResponse response = jOpenCageGeocoder.forward(request);
-
 			if (response != null && response.getResults() != null && !response.getResults().isEmpty()) {
 				JOpenCageResult result = response.getResults().get(0);
-
-				JOpenCageLatLng geometry = result.getGeometry();
-				double latitude = result.getGeometry().getLat();
-				double longitude = result.getGeometry().getLng();
 				JOpenCageComponents components = result.getComponents();
-
-				return "Latitude: " + latitude + "\nLongitude: " + longitude + "\nCity: " + components.getCity()
-						+ "\nCountry: " + components.getCountry();
-			} else {
-				return "No geolocation details found.";
+				return "Latitude: " + result.getGeometry().getLat() + "\nLongitude: " + result.getGeometry().getLng()
+						+ "\nCity: " + components.getCity() + "\nCountry: " + components.getCountry();
 			}
-		} catch (OsmApiException e) {
-			e.printStackTrace();
+			return "No geolocation details found.";
+		} catch (RuntimeException e) {
 			return "Failed to retrieve geolocation details.";
 		}
 	}
@@ -94,7 +95,7 @@ public class EmailService {
 			MimeMessage mimeMessage = javaMailSender.createMimeMessage();
 			MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true);
 
-			helper.setFrom("Railway <gangsteryt111@gmail.com>");
+			helper.setFrom(fromAddress, "Railway"); // the Gmail account in spring.mail.username
 			helper.setTo(admin.getEmail());
 			helper.setSubject("Login Alert");
 

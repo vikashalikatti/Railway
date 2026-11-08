@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.InetAddress;
+import java.util.concurrent.CompletableFuture;
 import java.sql.Date;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -19,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -30,6 +33,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.Booking;
@@ -67,6 +73,9 @@ import freemarker.template.TemplateNotFoundException;
 
 @Service
 public class Admin_Service_Implementation implements Admin_Service {
+
+	private static final Logger log = LoggerFactory.getLogger(Admin_Service_Implementation.class);
+
 
 	@Autowired
 	Admin_Repository admin_Repository;
@@ -162,9 +171,32 @@ public class Admin_Service_Implementation implements Admin_Service {
 		loginAttempts.succeeded(account);
 		String token = jwtUtil.generateToken_for_admin(admin, new Date(System.currentTimeMillis() + JwtUtil.LOGIN_TTL_MS));
 		structure.setData(token);
-		String location = InetAddress.getLocalHost().getHostAddress();
-		 emailService.sendInfoEmail(admin, location);
+		sendLoginAlert(admin);
 		return reply(structure, HttpStatus.OK, "Login Success");
+	}
+
+	/**
+	 * Emails the admin that their account was just used. Sent in the background: a slow or
+	 * failing mail server never delays or breaks the login. Skipped when the admin has no email.
+	 */
+	private void sendLoginAlert(Admin admin) {
+		if (admin.getEmail() == null || admin.getEmail().isBlank()) {
+			return;
+		}
+		// The address the login came from (the caller), read now while the request is still here
+		String from = "unknown";
+		RequestAttributes attrs = RequestContextHolder.getRequestAttributes();
+		if (attrs instanceof ServletRequestAttributes sra) {
+			from = sra.getRequest().getRemoteAddr();
+		}
+		String location = from;
+		CompletableFuture.runAsync(() -> {
+			try {
+				emailService.sendInfoEmail(admin, location);
+			} catch (Exception | LinkageError e) {
+				log.warn("Admin login alert email was not sent: {}", e.toString());
+			}
+		});
 	}
 
 	@Override
