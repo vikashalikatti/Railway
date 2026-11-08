@@ -32,6 +32,11 @@ public interface Passenger_Repository extends JpaRepository<Passenger, Long> {
 	long countWaitlistedBefore(@Param("train") int train, @Param("date") LocalDate date, @Param("type") String type,
 			@Param("quota") String quota, @Param("wl") int wl);
 
+	/** Everyone on a train run who has a ticket or had one at charting, for the admin's chart */
+	@Query("select p from Passenger p join fetch p.booking b where b.trainNumber = :train and b.journeyDate = :date"
+			+ " and (p.status <> 'CAN' or p.cancelReason = 'CHART') order by b.seatType, p.coachNumber, p.seatNumber, p.id")
+	List<Passenger> findForChart(@Param("train") int train, @Param("date") LocalDate date);
+
 	/** Classes of a train run that still have someone waiting: rows [seatType, quota] */
 	@Query("select distinct b.seatType, coalesce(b.quota, 'GN') from Passenger p join p.booking b"
 			+ " where b.trainNumber = :train and b.journeyDate = :date and p.status = 'WL'")

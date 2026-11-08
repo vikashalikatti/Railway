@@ -1,5 +1,15 @@
 # Changelog — Railway backend
 
+## v1.7.0 — 9 Nov 2026
+Chart & vacancy. Use with frontend v1.11.0.
+- GET /customer/chart/{train}?date=yyyy-MM-dd (public, no log-in): once the first chart is prepared,
+  every coach's berths and the stretches each is booked for. Never includes names, ages or PNRs.
+  Before the chart it answers 409 with the time the chart will be ready.
+- GET /admin/chart/{train}?date=yyyy-MM-dd (admin, any time): the same berth map plus every
+  passenger: name, age, gender, PNR, class, berth, journey, quota and status (including
+  "Not confirmed at charting").
+- The chart-prepared email now points passengers to Chart & vacancy.
+
 ## v1.6.1 — 9 Nov 2026
 - Ticket emails: if the email layout ever fails, a plain-text email is still sent; preparing an
   email can never cancel a booking or a cancellation.

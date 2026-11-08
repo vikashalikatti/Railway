@@ -236,7 +236,8 @@ public class TicketMailer {
 			return "The passengers marked Cancelled below no longer travel on this ticket.";
 		case CHART_PREPARED:
 			return "The reservation chart for your train has been prepared. This is your final status. "
-					+ "Passengers still on the waitlist were not confirmed and don't travel.";
+					+ "Passengers still on the waitlist were not confirmed and don't travel. "
+					+ "To see which berths are still vacant, open Chart & vacancy in the Railway app.";
 		default:
 			return "Your ticket is booked. Keep this email: you'll need the PNR to check status or cancel.";
 		}

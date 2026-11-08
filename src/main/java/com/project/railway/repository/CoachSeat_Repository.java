@@ -56,6 +56,10 @@ public interface CoachSeat_Repository extends JpaRepository<CoachSeat, Long> {
 			nativeQuery = true)
 	long countSeatsInQuota(@Param("train") int train, @Param("type") String type, @Param("quota") String quota);
 
+	/** Every seat of a train, coach by coach (for the reservation chart) */
+	@Query("select s from CoachSeat s join fetch s.coach c where c.train.trainNumber = :train order by c.id, s.seatNumber")
+	List<CoachSeat> findSeatsOfTrain(@Param("train") int train);
+
 	/** Every seat of a class in coach-then-seat order, for splitting into quotas */
 	@Query("select s from CoachSeat s where s.coach.train.trainNumber = :train and s.coach.coachType = :type"
 			+ " order by s.coach.id, s.seatNumber")

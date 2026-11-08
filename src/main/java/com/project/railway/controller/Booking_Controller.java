@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.project.railway.dto.Availability;
+import com.project.railway.dto.ChartView;
 import com.project.railway.dto.Booking;
 import com.project.railway.dto.PassengerRequest;
 import com.project.railway.helper.ResponseStructure;
@@ -24,6 +25,10 @@ import com.project.railway.service.StationDirectory;
 @RestController
 @RequestMapping("customer")
 public class Booking_Controller {
+
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.project.railway.service.ChartService chartService;
+
 
 	@Autowired
 	private BookingService bookingService;
@@ -62,6 +67,15 @@ public class Booking_Controller {
 			@RequestParam String book_date, @RequestParam String from, @RequestParam String to,
 			@RequestParam(defaultValue = "GN") String quota) {
 		return bookingService.book(token, train_no, seat_type, book_date, from, to, quota, passengers);
+	}
+
+	/**
+	 * Chart & vacancy: every coach's berths and the stretches each is booked for, once the chart
+	 * is prepared. Public, and never includes names, ages or PNRs. date is yyyy-MM-dd.
+	 */
+	@GetMapping("/chart/{train_no}")
+	public ResponseEntity<ResponseStructure<ChartView>> chart(@PathVariable int train_no, @RequestParam String date) {
+		return chartService.publicChart(train_no, date);
 	}
 
 	@GetMapping("/pnr/{pnr}")

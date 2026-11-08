@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.ChartView;
 import com.project.railway.dto.QuotaView;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
@@ -34,6 +35,10 @@ import freemarker.template.TemplateNotFoundException;
 @RestController
 @RequestMapping("admin")
 public class Admin_Controller {
+
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.project.railway.service.ChartService chartService;
+
 	@Autowired
 	Admin_Service admin_Service;
 
@@ -92,6 +97,13 @@ public class Admin_Controller {
 	public ResponseEntity<ResponseStructure<List<QuotaView>>> saveQuotas(@RequestHeader("Bearer") String token,
 			@PathVariable int train_No, @RequestBody Map<String, Map<String, Integer>> body) {
 		return admin_Service.saveQuotas(token, train_No, body);
+	}
+
+	/** Reservation chart with every passenger (name, age, gender, PNR, berth). Any time. date is yyyy-MM-dd. */
+	@GetMapping("/chart/{train_No}")
+	public ResponseEntity<ResponseStructure<ChartView>> chart(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestParam String date) {
+		return chartService.adminChart(token, train_No, date);
 	}
 
 	/** All trains, for the admin page */
