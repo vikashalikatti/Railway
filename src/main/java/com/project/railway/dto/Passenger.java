@@ -1,0 +1,78 @@
+package com.project.railway.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import lombok.Getter;
+import lombok.Setter;
+
+/** One traveller on a PNR, with their seat (CNF) or waitlist number (WL) */
+@Entity
+@Table(name = "passenger")
+@Getter
+@Setter
+public class Passenger {
+
+	public static final String CONFIRMED = "CNF";
+	public static final String WAITLISTED = "WL";
+	public static final String CANCELLED = "CAN";
+
+	@Id
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	private Long id;
+
+	@JsonIgnore
+	@ManyToOne(fetch = FetchType.LAZY, optional = false)
+	@JoinColumn(name = "booking_id", nullable = false)
+	private Booking booking;
+
+	@Column(nullable = false, length = 50)
+	private String name;
+
+	private int age;
+
+	@Column(length = 10)
+	private String gender;
+
+	/** Berth the passenger asked for (LOWER, UPPER, WINDOW...), or null */
+	@Column(name = "berth_preference", length = 20)
+	private String berthPreference;
+
+	/** CNF, WL or CAN */
+	@Column(nullable = false, length = 3)
+	private String status;
+
+	/** Waitlist number given at booking time (WL 7 stays 7 even after others confirm) */
+	@Column(name = "wl_number")
+	private Integer wlNumber;
+
+	@JsonIgnore
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "seat_id")
+	private CoachSeat seat;
+
+	/** Copied from the seat so the ticket still shows it after cancellation */
+	@Column(name = "coach_number", length = 10)
+	private String coachNumber;
+
+	@Column(name = "seat_number")
+	private Integer seatNumber;
+
+	@Column(name = "berth_type", length = 20)
+	private String berthType;
+
+	private double fare;
+
+	/** Current position in the waitlist (filled in when a PNR is read; not stored) */
+	@Transient
+	private Integer currentWlPosition;
+}

@@ -26,6 +26,10 @@ public class Station {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long stationId;
 	private String stationName;
+
+	/** Code of the station in the directory (StationMaster), e.g. SBC. Null for stops typed before codes existed. */
+	@jakarta.persistence.Column(name = "station_code", length = 6)
+	private String stationCode;
 	private LocalTime departureTime;
 	private LocalTime arrivalTime;
 	private double km;

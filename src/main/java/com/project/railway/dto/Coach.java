@@ -20,6 +20,7 @@ public class Coach {
     private String coachNumber;
     private String coachType;
     private int numberOfSeats;
+    /** No longer used: fares are worked out per journey by FareCalculator */
     private Double total_price;
 
     @ManyToOne
