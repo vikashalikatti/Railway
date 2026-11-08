@@ -1,5 +1,11 @@
 # Changelog — Railway backend
 
+## v1.6.1 — 9 Nov 2026
+- Ticket emails: if the email layout ever fails, a plain-text email is still sent; preparing an
+  email can never cancel a booking or a cancellation.
+- The Spring console shows every ticket email: "Ticket email queued", "Ticket email sent", or
+  "Ticket email ... was NOT sent" with the reason.
+
 ## v1.6.0 — 9 Nov 2026
 Quotas, Tatkal, charts and ticket emails. Use with frontend v1.10.0. See docs/SEAT-ALLOCATION.md.
 - Quotas on every seat: General, Tatkal, Premium Tatkal, Ladies, Senior citizen, each sold only in

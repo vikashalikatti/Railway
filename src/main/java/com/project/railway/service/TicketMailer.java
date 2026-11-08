@@ -84,8 +84,20 @@ public class TicketMailer {
 		return t;
 	});
 
-	/** Reads what the email needs. Call inside the transaction (it reads the customer and the train). */
+	/**
+	 * Reads what the email needs. Call inside the transaction (it reads the customer and the train).
+	 * Never throws: a problem here must not cancel the booking itself, so it returns null and logs.
+	 */
 	public Ticket ticket(Booking b, Event event) {
+		try {
+			return buildTicket(b, event);
+		} catch (RuntimeException e) {
+			log.error("Ticket email for PNR {} could not be prepared: {}", b.getBookingId(), e.toString());
+			return null;
+		}
+	}
+
+	private Ticket buildTicket(Booking b, Event event) {
 		Customer c = b.getCustomer();
 		Seat_type type = Seat_type.valueOf(b.getSeatType());
 		Quota quota = Quota.parse(b.getQuota());
@@ -127,6 +139,10 @@ public class TicketMailer {
 
 	/** Sends once the current transaction commits; immediately if there is no transaction */
 	public void sendAfterCommit(Ticket ticket) {
+		if (ticket == null) {
+			return;
+		}
+		log.info("Ticket email queued: {} for PNR {} to {}", ticket.event(), ticket.pnr(), ticket.email());
 		if (TransactionSynchronizationManager.isSynchronizationActive()) {
 			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 				@Override
@@ -141,25 +157,39 @@ public class TicketMailer {
 
 	private void send(Ticket t) {
 		if (t.email() == null || t.email().isBlank()) {
+			log.warn("Ticket email for PNR {} not sent: the passenger's account has no email address", t.pnr());
 			return;
 		}
 		pool.submit(() -> {
+			String subject = subject(t);
+			// The designed email; if the template ever fails, the plain-text version still goes out
+			String html = null;
 			try {
 				Map<String, Object> model = new HashMap<>();
 				model.put("t", t);
 				model.put("title", title(t.event()));
 				model.put("intro", intro(t.event()));
-				String html = FreeMarkerTemplateUtils.processTemplateIntoString(freemarker.getTemplate("ticket.ftl"),
-						model);
+				html = FreeMarkerTemplateUtils.processTemplateIntoString(freemarker.getTemplate("ticket.ftl"), model);
+			} catch (Exception e) {
+				log.warn("Ticket email template failed for PNR {}, sending plain text instead: {}", t.pnr(),
+						e.toString());
+			}
+			try {
 				MimeMessage message = mailSender.createMimeMessage();
-				MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+				MimeMessageHelper helper = new MimeMessageHelper(message, html != null, "UTF-8");
 				helper.setFrom(fromAddress, "Railway");
 				helper.setTo(t.email());
-				helper.setSubject(subject(t));
-				helper.setText(plainText(t), html);
+				helper.setSubject(subject);
+				if (html != null) {
+					helper.setText(plainText(t), html);
+				} else {
+					helper.setText(plainText(t), false);
+				}
 				mailSender.send(message);
+				log.info("Ticket email sent: {} to {}", subject, t.email());
 			} catch (Exception e) {
-				log.warn("Ticket email for PNR {} was not sent: {}", t.pnr(), e.toString());
+				log.error("Ticket email for PNR {} to {} was NOT sent (check spring.mail.username and MAIL_PASSWORD): {}",
+						t.pnr(), t.email(), e.toString());
 			}
 		});
 	}
