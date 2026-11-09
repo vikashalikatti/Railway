@@ -78,6 +78,10 @@ public class Booking {
 	@Column(name = "seat_type", nullable = false, length = 20)
 	private String seatType;
 
+	/** GN, TQ, PT, LD or SS (empty means General, for bookings made before quotas existed) */
+	@Column(length = 2)
+	private String quota;
+
 	@Column(name = "distance_km")
 	private double distanceKm;
 
@@ -94,6 +98,10 @@ public class Booking {
 	@OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, fetch = FetchType.EAGER)
 	@OrderBy("id ASC")
 	private List<Passenger> passengers = new ArrayList<>();
+
+	/** NOT_PREPARED, PREPARED (first chart) or FINAL (filled in when a PNR is read; not stored) */
+	@jakarta.persistence.Transient
+	private String chartStatus;
 
 	/** Works out the overall status from the passengers' statuses */
 	public void refreshStatus() {

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.InetAddress;
+import java.util.concurrent.CompletableFuture;
 import java.sql.Date;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -19,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -30,6 +33,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.Booking;
@@ -37,6 +43,8 @@ import com.project.railway.dto.Coach;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.CoachSeat;
+import com.project.railway.dto.QuotaShare;
+import com.project.railway.dto.QuotaView;
 import com.project.railway.dto.Station;
 import com.project.railway.dto.StationMaster;
 import com.project.railway.dto.Train;
@@ -45,6 +53,8 @@ import com.project.railway.helper.EmailService;
 import com.project.railway.helper.AccountRules;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.LoginAttemptService;
+import com.project.railway.helper.Quota;
+import com.project.railway.helper.QuotaPlanner;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Seat_type;
 import com.project.railway.repository.Admin_Repository;
@@ -54,6 +64,7 @@ import com.project.railway.repository.Schedule_Repository;
 import com.project.railway.repository.Book_Repository;
 import com.project.railway.repository.CoachSeat_Repository;
 import com.project.railway.repository.StationMaster_Repository;
+import com.project.railway.repository.QuotaShare_Repository;
 import com.project.railway.repository.Station_Repository;
 import com.project.railway.repository.Train_Repository;
 import com.project.railway.service.Admin_Service;
@@ -67,6 +78,9 @@ import freemarker.template.TemplateNotFoundException;
 
 @Service
 public class Admin_Service_Implementation implements Admin_Service {
+
+	private static final Logger log = LoggerFactory.getLogger(Admin_Service_Implementation.class);
+
 
 	@Autowired
 	Admin_Repository admin_Repository;
@@ -109,6 +123,15 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 	@Autowired
 	private LoginAttemptService loginAttempts;
+
+	@Autowired
+	private QuotaShare_Repository quotaShare_Repository;
+
+	@Autowired
+	private com.project.railway.repository.Passenger_Repository passenger_Repository;
+
+	@Autowired
+	private com.project.railway.service.BookingEngine bookingEngine;
 
 	@PersistenceContext
 	private EntityManager entityManager;
@@ -162,9 +185,32 @@ public class Admin_Service_Implementation implements Admin_Service {
 		loginAttempts.succeeded(account);
 		String token = jwtUtil.generateToken_for_admin(admin, new Date(System.currentTimeMillis() + JwtUtil.LOGIN_TTL_MS));
 		structure.setData(token);
-		String location = InetAddress.getLocalHost().getHostAddress();
-		 emailService.sendInfoEmail(admin, location);
+		sendLoginAlert(admin);
 		return reply(structure, HttpStatus.OK, "Login Success");
+	}
+
+	/**
+	 * Emails the admin that their account was just used. Sent in the background: a slow or
+	 * failing mail server never delays or breaks the login. Skipped when the admin has no email.
+	 */
+	private void sendLoginAlert(Admin admin) {
+		if (admin.getEmail() == null || admin.getEmail().isBlank()) {
+			return;
+		}
+		// The address the login came from (the caller), read now while the request is still here
+		String from = "unknown";
+		RequestAttributes attrs = RequestContextHolder.getRequestAttributes();
+		if (attrs instanceof ServletRequestAttributes sra) {
+			from = sra.getRequest().getRemoteAddr();
+		}
+		String location = from;
+		CompletableFuture.runAsync(() -> {
+			try {
+				emailService.sendInfoEmail(admin, location);
+			} catch (Exception | LinkageError e) {
+				log.warn("Admin login alert email was not sent: {}", e.toString());
+			}
+		});
 	}
 
 	@Override
@@ -500,15 +546,20 @@ public class Admin_Service_Implementation implements Admin_Service {
 			structure.setStatus(HttpStatus.BAD_REQUEST.value());
 			return new ResponseEntity<>(structure, HttpStatus.BAD_REQUEST);
 		}
-		if (booking_Repository.existsByTrainNumber(trainNo)) {
-			structure.setMessage("This train already has bookings, so its coaches can't be changed");
+		// Only tickets that will still travel block a full replacement; cancelled and past ones don't
+		if (booking_Repository.existsByTrainNumberAndJourneyDateGreaterThanEqualAndStatusNot(trainNo,
+				LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")), Booking.CANCELLED)) {
+			structure.setMessage("This train has upcoming bookings, so all its coaches can't be replaced. "
+					+ "Add or remove coaches from a date instead");
 			structure.setStatus(HttpStatus.CONFLICT.value());
 			return new ResponseEntity<>(structure, HttpStatus.CONFLICT);
 		}
 
-		// Remove old coaches and their seats
+		// Remove old coaches and their seats. Past and cancelled tickets keep their coach and berth
+		// numbers (copied on the passenger); only their links to the seat rows are cleared.
 		List<Coach> oldCoaches = train.getCoaches() == null ? new ArrayList<>() : train.getCoaches();
 		if (!oldCoaches.isEmpty()) {
+			releaseSeats(oldCoaches.stream().map(Coach::getId).toList());
 			coachSeat_Repository.deleteByCoachIds(oldCoaches.stream().map(Coach::getId).toList());
 			oldCoaches.clear(); // orphanRemoval deletes the coach rows
 			train_Repository.saveAndFlush(train);
@@ -543,6 +594,11 @@ public class Admin_Service_Implementation implements Admin_Service {
 			}
 		}
 		coachSeat_Repository.saveAll(seats);
+		// Split every new class into quotas (the admin's saved shares, or the defaults)
+		for (Seat_type type : counts.keySet()) {
+			applyQuotas(trainNo, type, seats.stream().filter(seat -> type.name().equals(seat.getCoach().getCoachType()))
+					.toList());
+		}
 
 		if (train.getCoaches() == null) {
 			train.setCoaches(new ArrayList<>());
@@ -628,6 +684,347 @@ public class Admin_Service_Implementation implements Admin_Service {
 		structure.setMessage("Estimated km between stops");
 		structure.setStatus(HttpStatus.OK.value());
 		return new ResponseEntity<>(structure, HttpStatus.OK);
+	}
+
+	/* ------------------------------------------------------------ coaches by date */
+
+	private static final java.time.ZoneId IST = java.time.ZoneId.of("Asia/Kolkata");
+
+	/** Clears passengers' and seat-occupancy links to these coaches' seats, so the seats can be deleted */
+	private void releaseSeats(List<Integer> coachIds) {
+		if (coachIds.isEmpty()) {
+			return;
+		}
+		List<Long> seatIds = coachSeat_Repository.findIdsByCoachIds(coachIds);
+		if (seatIds.isEmpty()) {
+			return;
+		}
+		entityManager.createQuery("delete from SeatOccupancy o where o.seat.id in :ids").setParameter("ids", seatIds)
+				.executeUpdate();
+		entityManager.createQuery("update Passenger p set p.seat = null where p.seat.id in :ids")
+				.setParameter("ids", seatIds).executeUpdate();
+	}
+
+	private static LocalDate date(Object value, String what) {
+		if (value == null || value.toString().isBlank()) {
+			return null;
+		}
+		try {
+			return LocalDate.parse(value.toString().trim());
+		} catch (java.time.format.DateTimeParseException e) {
+			throw new IllegalArgumentException("Enter the " + what + " date as yyyy-MM-dd");
+		}
+	}
+
+	/** Coaches running on a date */
+	private static long runningOn(Train train, LocalDate d) {
+		return train.getCoaches() == null ? 0 : train.getCoaches().stream().filter(c -> c.runsOn(d)).count();
+	}
+
+	/**
+	 * Adds coaches from a date, for good or until an end date (extra coaches for rush days).
+	 * Body: {"seatType": "SLEEPER_CLASS", "count": 2, "from": "2026-11-12", "to": "2026-11-20"}
+	 * The new seats go first to anyone waiting in that class on those dates. Allowed whatever is booked.
+	 */
+	@Override
+	@Transactional
+	public ResponseEntity<ResponseStructure<Train>> addCoachesFrom(String token, int trainNo, Map<String, Object> body) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+		if (!isAdmin(token)) {
+			return reply(structure, HttpStatus.UNAUTHORIZED, "Invalid or Expired Token, Please Login Again");
+		}
+		Train train = train_Repository.findByTrainNumber(trainNo);
+		if (train == null) {
+			return reply(structure, HttpStatus.NOT_FOUND, "Train not found");
+		}
+		Seat_type type;
+		LocalDate from;
+		LocalDate to;
+		int count;
+		try {
+			type = Seat_type.valueOf(String.valueOf(body.get("seatType")).trim().toUpperCase(Locale.ROOT));
+			count = Integer.parseInt(String.valueOf(body.get("count")).trim());
+			from = date(body.get("from"), "start");
+			to = date(body.get("to"), "end");
+		} catch (IllegalArgumentException e) {
+			return reply(structure, HttpStatus.BAD_REQUEST,
+					e.getMessage() != null && e.getMessage().startsWith("Enter") ? e.getMessage() : "Choose a class and how many coaches");
+		}
+		LocalDate today = LocalDate.now(IST);
+		if (from == null) {
+			from = today;
+		}
+		if (count < 1 || count > 10) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "Add 1 to 10 coaches at a time");
+		}
+		if (from.isBefore(today)) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "The start date can't be in the past");
+		}
+		if (to != null && to.isBefore(from)) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "The end date must be on or after the start date");
+		}
+		for (LocalDate d : to == null ? List.of(from) : List.of(from, to)) {
+			if (runningOn(train, d) + count > CoachLayout.MAX_COACHES) {
+				return reply(structure, HttpStatus.BAD_REQUEST, "That would make " + (runningOn(train, d) + count)
+						+ " coaches on " + d + "; a train can have at most " + CoachLayout.MAX_COACHES);
+			}
+		}
+
+		// Next free numbers for this class: S9, S10…
+		String prefix = CoachLayout.prefix(type);
+		int highest = 0;
+		if (train.getCoaches() != null) {
+			for (Coach c : train.getCoaches()) {
+				String no = c.getCoachNumber() == null ? "" : c.getCoachNumber();
+				if (type.name().equals(c.getCoachType()) && no.startsWith(prefix)) {
+					try {
+						highest = Math.max(highest, Integer.parseInt(no.substring(prefix.length())));
+					} catch (NumberFormatException ignored) {
+						// old style number like SLEEPER_CLASS3
+					}
+				}
+			}
+		}
+		List<Coach> added = new ArrayList<>();
+		List<CoachSeat> seats = new ArrayList<>();
+		for (int i = 1; i <= count; i++) {
+			Coach coach = new Coach();
+			coach.setTrain(train);
+			coach.setCoachType(type.name());
+			coach.setCoachNumber(prefix + (highest + i));
+			coach.setNumberOfSeats(CoachLayout.capacity(type));
+			coach.setValidFrom(from);
+			coach.setValidTo(to);
+			added.add(coach);
+		}
+		coach_Repository.saveAll(added);
+		for (Coach coach : added) {
+			for (int n = 1; n <= coach.getNumberOfSeats(); n++) {
+				CoachSeat seat = new CoachSeat();
+				seat.setCoach(coach);
+				seat.setSeatNumber(n);
+				seat.setBerthType(CoachLayout.berthType(type, n));
+				seat.setQuota(Quota.GN.name()); // extra coaches are General: they clear the waitlist
+				seats.add(seat);
+			}
+		}
+		coachSeat_Repository.saveAllAndFlush(seats);
+		if (train.getCoaches() == null) {
+			train.setCoaches(new ArrayList<>());
+		}
+		train.getCoaches().addAll(added);
+
+		// Anyone waiting in this class on these dates gets the new seats
+		int confirmed = 0;
+		LocalDate last = to != null ? to : today.plusDays(com.project.railway.service.BookingService.ADVANCE_BOOKING_DAYS);
+		for (LocalDate d : passenger_Repository.findWaitlistDates(trainNo, type.name(), from, last)) {
+			confirmed += bookingEngine.promoteAfterNewSeats(trainNo, d, type);
+		}
+
+		structure.setData2(train);
+		String when = to == null ? "from " + from : "from " + from + " to " + to;
+		return reply(structure, HttpStatus.OK, count + (count == 1 ? " coach" : " coaches") + " added " + when
+				+ (confirmed > 0 ? "; " + confirmed + " waitlisted passengers got seats" : ""));
+	}
+
+	/**
+	 * Takes coaches off the train from a date on. Body: {"coachNumbers": ["S9", "S10"], "from": "2026-11-21"}
+	 * Refused only while those coaches have confirmed passengers on or after that date; cancelled
+	 * tickets don't count.
+	 */
+	@Override
+	@Transactional
+	public ResponseEntity<ResponseStructure<Train>> removeCoachesFrom(String token, int trainNo, Map<String, Object> body) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+		if (!isAdmin(token)) {
+			return reply(structure, HttpStatus.UNAUTHORIZED, "Invalid or Expired Token, Please Login Again");
+		}
+		Train train = train_Repository.findByTrainNumber(trainNo);
+		if (train == null) {
+			return reply(structure, HttpStatus.NOT_FOUND, "Train not found");
+		}
+		LocalDate from;
+		try {
+			from = date(body.get("from"), "start");
+		} catch (IllegalArgumentException e) {
+			return reply(structure, HttpStatus.BAD_REQUEST, e.getMessage());
+		}
+		LocalDate today = LocalDate.now(IST);
+		if (from == null) {
+			from = today;
+		}
+		if (from.isBefore(today)) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "The date can't be in the past");
+		}
+		Object raw = body.get("coachNumbers");
+		java.util.Set<String> wanted = new java.util.LinkedHashSet<>();
+		if (raw instanceof java.util.Collection<?> list) {
+			list.forEach(x -> wanted.add(String.valueOf(x).trim().toUpperCase(Locale.ROOT)));
+		}
+		final LocalDate start = from;
+		List<Coach> coaches = train.getCoaches() == null ? List.of()
+				: train.getCoaches().stream()
+						.filter(c -> c.getCoachNumber() != null && wanted.contains(c.getCoachNumber().toUpperCase(Locale.ROOT)))
+						.filter(c -> c.getValidTo() == null || !c.getValidTo().isBefore(start)).toList();
+		if (coaches.isEmpty()) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "Choose coaches that run on or after " + from);
+		}
+
+		// Confirmed passengers in these coaches from that date stop the removal (cancelled ones don't)
+		List<Object[]> busy = passenger_Repository.countConfirmedInCoachesFrom(coaches.stream().map(Coach::getId).toList(),
+				from);
+		if (!busy.isEmpty()) {
+			long people = busy.stream().mapToLong(r -> ((Number) r[1]).longValue()).sum();
+			String dates = busy.stream().limit(4).map(r -> r[0] + " (" + r[1] + ")")
+					.collect(java.util.stream.Collectors.joining(", "));
+			return reply(structure, HttpStatus.CONFLICT, people + " confirmed passengers are in these coaches on " + dates
+					+ (busy.size() > 4 ? " and more" : "") + ". Remove them from the day after their last journey, "
+					+ "or after those tickets are cancelled");
+		}
+
+		List<String> removed = new ArrayList<>();
+		for (Coach c : coaches) {
+			LocalDate end = from.minusDays(1);
+			boolean neverRuns = c.getValidFrom() != null && end.isBefore(c.getValidFrom());
+			boolean everUsed = passenger_Repository
+					.countBySeatIds(coachSeat_Repository.findIdsByCoachIds(List.of(c.getId()))) > 0;
+			if (neverRuns || (c.getValidFrom() == null && end.isBefore(today) && !everUsed)) {
+				// It wouldn't run on any date any more: delete it
+				releaseSeats(List.of(c.getId()));
+				coachSeat_Repository.deleteByCoachIds(List.of(c.getId()));
+				train.getCoaches().removeIf(x -> x.getId() == c.getId()); // by id: Lombok equals would walk train <-> coaches
+			} else {
+				c.setValidTo(end);
+			}
+			removed.add(c.getCoachNumber());
+		}
+		train_Repository.save(train);
+		structure.setData2(train);
+		return reply(structure, HttpStatus.OK, String.join(", ", removed) + " removed from " + from);
+	}
+
+	/* ------------------------------------------------------------ quotas */
+
+	/** The admin's shares for a class, or the defaults */
+	private QuotaPlanner.Shares sharesFor(int trainNo, Seat_type type) {
+		QuotaShare row = quotaShare_Repository.findByTrainNumberAndSeatType(trainNo, type.name());
+		return row == null ? QuotaPlanner.Shares.defaults(type)
+				: new QuotaPlanner.Shares(row.getTatkalPct(), row.getPremiumPct(), row.getLadiesPct(), row.getSeniorPct());
+	}
+
+	/** Marks each seat of a class with its quota. seats: every seat of that class, in coach-then-number order. */
+	private void applyQuotas(int trainNo, Seat_type type, List<CoachSeat> seats) {
+		List<QuotaPlanner.SeatRef> refs = seats.stream()
+				.map(seat -> new QuotaPlanner.SeatRef(seat.getId(), seat.getCoach().getId(), seat.getSeatNumber(),
+						seat.getBerthType()))
+				.toList();
+		Map<Long, Quota> plan = QuotaPlanner.plan(refs, sharesFor(trainNo, type));
+		for (CoachSeat seat : seats) {
+			seat.setQuota(plan.getOrDefault(seat.getId(), Quota.GN).name());
+		}
+		coachSeat_Repository.saveAll(seats);
+	}
+
+	private List<QuotaView> quotaViews(Train train) {
+		List<QuotaView> out = new ArrayList<>();
+		if (train.getCoaches() == null) {
+			return out;
+		}
+		java.util.Set<String> classes = new java.util.LinkedHashSet<>();
+		train.getCoaches().forEach(c -> classes.add(c.getCoachType()));
+		for (String typeName : classes) {
+			Seat_type type;
+			try {
+				type = Seat_type.valueOf(typeName);
+			} catch (IllegalArgumentException e) {
+				continue;
+			}
+			QuotaShare row = quotaShare_Repository.findByTrainNumberAndSeatType(train.getTrainNumber(), typeName);
+			QuotaPlanner.Shares sh = sharesFor(train.getTrainNumber(), type);
+			Map<String, Long> counts = new LinkedHashMap<>();
+			long total = 0;
+			for (Quota q : Quota.values()) {
+				long n = coachSeat_Repository.countSeatsInQuota(train.getTrainNumber(), typeName, q.name());
+				counts.put(q.name(), n);
+				total += n;
+			}
+			out.add(new QuotaView(typeName, sh.tatkal(), sh.premium(), sh.ladies(), sh.senior(), row != null, total,
+					counts));
+		}
+		return out;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public ResponseEntity<ResponseStructure<List<QuotaView>>> quotas(String token, int trainNo) {
+		ResponseStructure<List<QuotaView>> structure = new ResponseStructure<>();
+		if (!isAdmin(token)) {
+			return reply(structure, HttpStatus.UNAUTHORIZED, "Invalid or Expired Token, Please Login Again");
+		}
+		Train train = train_Repository.findByTrainNumber(trainNo);
+		if (train == null) {
+			return reply(structure, HttpStatus.NOT_FOUND, "Train not found");
+		}
+		structure.setData2(quotaViews(train));
+		return reply(structure, HttpStatus.OK, "Quotas");
+	}
+
+	/**
+	 * Saves the quota split per class and re-marks the seats. Body:
+	 * {"SLEEPER_CLASS": {"tatkalPct": 30, "premiumPct": 10, "ladiesPct": 5, "seniorPct": 8}, ...}
+	 * Tickets already sold keep their seats; the new split decides which quota each seat is sold in from now on.
+	 */
+	@Override
+	@Transactional
+	public ResponseEntity<ResponseStructure<List<QuotaView>>> saveQuotas(String token, int trainNo,
+			Map<String, Map<String, Integer>> body) {
+		ResponseStructure<List<QuotaView>> structure = new ResponseStructure<>();
+		if (!isAdmin(token)) {
+			return reply(structure, HttpStatus.UNAUTHORIZED, "Invalid or Expired Token, Please Login Again");
+		}
+		Train train = train_Repository.findByTrainNumber(trainNo);
+		if (train == null) {
+			return reply(structure, HttpStatus.NOT_FOUND, "Train not found");
+		}
+		if (body == null || body.isEmpty()) {
+			return reply(structure, HttpStatus.BAD_REQUEST, "Send the quota split for at least one class");
+		}
+		java.util.Set<String> classes = new java.util.HashSet<>();
+		if (train.getCoaches() != null) {
+			train.getCoaches().forEach(c -> classes.add(c.getCoachType()));
+		}
+		for (Map.Entry<String, Map<String, Integer>> e : body.entrySet()) {
+			Seat_type type;
+			try {
+				type = Seat_type.valueOf(e.getKey().trim().toUpperCase(Locale.ROOT));
+			} catch (IllegalArgumentException ex) {
+				return reply(structure, HttpStatus.BAD_REQUEST, "Unknown class " + e.getKey());
+			}
+			if (!classes.contains(type.name())) {
+				return reply(structure, HttpStatus.BAD_REQUEST, "This train has no " + type.name() + " coaches");
+			}
+			Map<String, Integer> v = e.getValue() == null ? Map.of() : e.getValue();
+			QuotaPlanner.Shares sh = new QuotaPlanner.Shares(v.getOrDefault("tatkalPct", 0),
+					v.getOrDefault("premiumPct", 0), v.getOrDefault("ladiesPct", 0), v.getOrDefault("seniorPct", 0));
+			String problem = sh.problem(type);
+			if (problem != null) {
+				return reply(structure, HttpStatus.BAD_REQUEST, CoachLayout.shortCode(type) + ": " + problem);
+			}
+			QuotaShare row = quotaShare_Repository.findByTrainNumberAndSeatType(trainNo, type.name());
+			if (row == null) {
+				row = new QuotaShare();
+				row.setTrainNumber(trainNo);
+				row.setSeatType(type.name());
+			}
+			row.setTatkalPct(sh.tatkal());
+			row.setPremiumPct(sh.premium());
+			row.setLadiesPct(sh.ladies());
+			row.setSeniorPct(sh.senior());
+			quotaShare_Repository.save(row);
+			applyQuotas(trainNo, type, coachSeat_Repository.findSeatsInClass(trainNo, type.name()));
+		}
+		structure.setData2(quotaViews(train));
+		return reply(structure, HttpStatus.OK, "Quotas saved");
 	}
 
 	/** Valid, unexpired token whose role is admin */

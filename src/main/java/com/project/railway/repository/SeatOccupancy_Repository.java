@@ -16,4 +16,8 @@ public interface SeatOccupancy_Repository extends JpaRepository<SeatOccupancy, L
 	@Modifying
 	@Query("delete from SeatOccupancy o where o.passenger.id in :passengerIds")
 	int deleteByPassengerIds(@Param("passengerIds") Collection<Long> passengerIds);
+
+	/** Booked stretches on one train run: rows [seatId, fromStop, toStop] */
+	@Query("select o.seat.id, o.fromStop, o.toStop from SeatOccupancy o where o.trainNumber = :train and o.journeyDate = :date")
+	java.util.List<Object[]> findSegments(@Param("train") int train, @Param("date") java.time.LocalDate date);
 }

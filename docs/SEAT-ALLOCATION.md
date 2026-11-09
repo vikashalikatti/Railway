@@ -101,8 +101,14 @@ retries the whole transaction up to 3 times, then answers `409 Try again`.
 
 | Method | Path | What |
 |---|---|---|
-| GET | `/customer/select_class/{train}/{from}/{to}?seat_type=&date=M/d/yyyy` | `{available, waitlisted, fare, status, berthPreferences}` |
-| POST | `/customer/booking/{train}?seat_type=&book_date=&from=&to=` | body `[{"name","age","gender","berthPreference"}]`, 1 to 6 passengers |
+| GET | `/customer/select_class/{train}/{from}/{to}?seat_type=&date=M/d/yyyy&quota=GN` | `{available, waitlisted, fare, status, berthPreferences}` |
+| POST | `/customer/booking/{train}?seat_type=&book_date=&from=&to=&quota=GN` | body `[{"name","age","gender","berthPreference"}]`, 1 to 6 passengers |
+| GET | `/admin/quotas/{train}` | quota split per class: `[{seatType, tatkalPct, premiumPct, ladiesPct, seniorPct, saved, seats, seatsByQuota}]` |
+| POST | `/admin/quotas/{train}` | body `{"SLEEPER_CLASS": {"tatkalPct":30,"premiumPct":10,"ladiesPct":5,"seniorPct":8}}` |
+| GET | `/customer/chart/{train}?date=yyyy-MM-dd` | public berth map after the first chart: `{stops, classes:[{coaches:[{berths:[{seatNumber, berthType, booked:[{from,to}]}]}]}]}`, no personal details |
+| GET | `/admin/chart/{train}?date=yyyy-MM-dd` | same, any time, plus `passengers` (name, age, gender, PNR, berth, journey, quota, status) |
+| POST | `/admin/coaches/{train}/add` | body `{"seatType":"SLEEPER_CLASS","count":2,"from":"2026-11-12","to":"2026-11-20"}` (to optional) |
+| POST | `/admin/coaches/{train}/remove` | body `{"coachNumbers":["S9"],"from":"2026-11-21"}`; refused only while confirmed passengers are in them from that date |
 | GET | `/customer/pnr/{pnr}` | one booking, with current WL positions |
 | GET | `/customer/my_bookings` | all of the passenger's bookings |
 | POST | `/customer/cancel/{pnr}` | body `[passengerId, …]`, or empty to cancel all |
@@ -177,3 +183,40 @@ booking falls on it.
 | Second sitting | 2S | D | 108 | 3+3 |
 
 General (unreserved) coaches aren't included: they have no seat numbers and aren't booked online.
+
+## Quotas (backend v1.6.0)
+Every seat has a quota (`coach_seat.quota`): **GN** General, **TQ** Tatkal, **PT** Premium Tatkal,
+**LD** Ladies, **SS** Senior citizen. Until the first chart a seat is only sold in its own quota, so
+General can be on the waitlist while Tatkal seats are still unsold.
+
+| Quota | Who | Opens | Waitlist | Per PNR |
+|---|---|---|---|---|
+| GN | anyone | with advance booking | WL | 6 |
+| TQ | anyone | day before, 10:00 AC / 11:00 SL and 2S | TQWL | 4 |
+| PT | anyone | with Tatkal; fare rises as seats sell (up to 2x) | none | 4 |
+| LD | women, and children under 12 with them | with advance booking | none | 6 |
+| SS | men 60+, women 45+; lower berths | with advance booking | none | 2 |
+
+- No Tatkal in 1A. Senior citizen only in berth classes (SL, 3A, 2A, 1A, 3E).
+- Tatkal charge: 10% of the fare in 2S (min 10, max 15), 30% elsewhere (SL 100–200, CC 125–225,
+  3A/3E 300–400, 2A/EC 400–500). Premium Tatkal = (fare + Tatkal charge) x (1 + share of PT seats sold).
+- The admin sets each class's split in percent (`quota_share`); General gets the rest. Defaults:
+  Tatkal 30, Premium Tatkal 10, Ladies 5, Senior 8 (chair cars and 2S: no Senior; 1A: no Tatkal).
+  Seats are marked by `QuotaPlanner`: Senior gets lower berths spread across coaches, Ladies a block
+  at the front of the first coach, Premium Tatkal and Tatkal from the last coaches back.
+- Each quota with a waitlist has its own counter row (`waitlist_counter.seat_type` is the class for
+  General, e.g. `SLEEPER_CLASS`, and `TQ:SL` for Tatkal). A cancelled seat goes to its own quota's waitlist.
+
+## Charts
+`ChartScheduler` runs every minute (`chart_run` keeps one row per train and date, locked while a chart runs):
+- **First chart**, 4 hours before the train leaves its first station: unsold seats of every quota are
+  released; General waitlist, then Tatkal waitlist, get them in WL order; anyone still waiting is
+  cancelled (`passenger.cancel_reason = CHART`); everyone is emailed their final status.
+  After it, only General booking is open, for seats still free, with no waitlist.
+- **Final chart**, 30 minutes before departure (from the passenger's boarding station): booking closes.
+
+## Emails
+`TicketMailer` sends an e-ticket (`templates/ticket.ftl`) when a PNR is booked, when a waitlisted
+passenger gets a seat, on cancellation, and when the chart is prepared. The content is read inside the
+booking transaction and the email is sent after it commits, in the background, so a rollback never
+sends an email and a mail problem never affects a booking.

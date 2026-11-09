@@ -82,6 +82,8 @@ public class SecurityConfiguration {
 									"/customer/forgot-otp/**", "/customer/reset-password")
 							.permitAll()
 							.requestMatchers(HttpMethod.GET, "/customer/stations").permitAll()
+							// chart & vacancy: berths only, no personal details
+							.requestMatchers(HttpMethod.GET, "/customer/chart/**").permitAll()
 							// everything else needs the right role
 							.requestMatchers("/admin/**").hasRole("ADMIN")
 							.requestMatchers("/customer/**").hasRole("CUSTOMER");

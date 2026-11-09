@@ -24,6 +24,9 @@ public class Passenger {
 
 	public static final String CONFIRMED = "CNF";
 	public static final String WAITLISTED = "WL";
+	/** cancelReason values */
+	public static final String CANCELLED_BY_USER = "USER";
+	public static final String CANCELLED_AT_CHART = "CHART";
 	public static final String CANCELLED = "CAN";
 
 	@Id
@@ -71,6 +74,10 @@ public class Passenger {
 	private String berthType;
 
 	private double fare;
+
+	/** Why the passenger was cancelled: USER, or CHART when still waitlisted at charting */
+	@Column(name = "cancel_reason", length = 10)
+	private String cancelReason;
 
 	/** Current position in the waitlist (filled in when a PNR is read; not stored) */
 	@Transient

@@ -26,5 +26,18 @@ public class Coach {
     @ManyToOne
     @JoinColumn(name = "train_number")
     private Train train;
+
+    /** First journey date this coach runs on; empty = from the start */
+    @Column(name = "valid_from")
+    private java.time.LocalDate validFrom;
+
+    /** Last journey date this coach runs on; empty = no end (extra coaches for rush days have one) */
+    @Column(name = "valid_to")
+    private java.time.LocalDate validTo;
+
+    /** Does this coach run on this journey date? */
+    public boolean runsOn(java.time.LocalDate date) {
+        return (validFrom == null || !date.isBefore(validFrom)) && (validTo == null || !date.isAfter(validTo));
+    }
 }
 

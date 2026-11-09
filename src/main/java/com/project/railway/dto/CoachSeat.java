@@ -42,4 +42,8 @@ public class CoachSeat {
 
 	@Column(name = "berth_type", nullable = false, length = 20)
 	private String berthType;
+
+	/** Quota this seat is sold in until the first chart: GN, TQ, PT, LD or SS (empty means GN) */
+	@Column(length = 2)
+	private String quota;
 }
