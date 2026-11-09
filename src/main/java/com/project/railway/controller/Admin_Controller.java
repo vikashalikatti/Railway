@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.project.railway.dto.Admin;
+import com.project.railway.dto.ChartView;
+import com.project.railway.dto.QuotaView;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
 import com.project.railway.dto.Station;
@@ -33,6 +35,10 @@ import freemarker.template.TemplateNotFoundException;
 @RestController
 @RequestMapping("admin")
 public class Admin_Controller {
+
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.project.railway.service.ChartService chartService;
+
 	@Autowired
 	Admin_Service admin_Service;
 
@@ -77,6 +83,44 @@ public class Admin_Controller {
 	public ResponseEntity<ResponseStructure<Train>> addCoaches(@RequestBody Map<String, Integer> composition,
 			@RequestHeader("Bearer") String token, @PathVariable int train_No) {
 		return admin_Service.addCoaches(composition, token, train_No);
+	}
+
+	/** Quota split per class of a train: Tatkal, Premium Tatkal, Ladies and Senior citizen in percent */
+	@GetMapping("/quotas/{train_No}")
+	public ResponseEntity<ResponseStructure<List<QuotaView>>> quotas(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No) {
+		return admin_Service.quotas(token, train_No);
+	}
+
+	/** Body: {"SLEEPER_CLASS": {"tatkalPct": 30, "premiumPct": 10, "ladiesPct": 5, "seniorPct": 8}} */
+	@PostMapping("/quotas/{train_No}")
+	public ResponseEntity<ResponseStructure<List<QuotaView>>> saveQuotas(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestBody Map<String, Map<String, Integer>> body) {
+		return admin_Service.saveQuotas(token, train_No, body);
+	}
+
+	/** Reservation chart with every passenger (name, age, gender, PNR, berth). Any time. date is yyyy-MM-dd. */
+	@GetMapping("/chart/{train_No}")
+	public ResponseEntity<ResponseStructure<ChartView>> chart(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestParam String date) {
+		return chartService.adminChart(token, train_No, date);
+	}
+
+	/**
+	 * Adds coaches from a date, for good or until an end date (rush days).
+	 * Body: {"seatType": "SLEEPER_CLASS", "count": 2, "from": "2026-11-12", "to": "2026-11-20"}
+	 */
+	@PostMapping("/coaches/{train_No}/add")
+	public ResponseEntity<ResponseStructure<Train>> addCoachesFrom(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestBody Map<String, Object> body) {
+		return admin_Service.addCoachesFrom(token, train_No, body);
+	}
+
+	/** Takes coaches off from a date on. Body: {"coachNumbers": ["S9", "S10"], "from": "2026-11-21"} */
+	@PostMapping("/coaches/{train_No}/remove")
+	public ResponseEntity<ResponseStructure<Train>> removeCoachesFrom(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestBody Map<String, Object> body) {
+		return admin_Service.removeCoachesFrom(token, train_No, body);
 	}
 
 	/** All trains, for the admin page */

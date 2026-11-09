@@ -161,6 +161,36 @@ public final class CoachLayout {
 		}
 	}
 
+	/** Short class code shown on tickets: 2S, SL, CC, 3E, 3A, 2A, EC, 1A */
+	public static String shortCode(Seat_type type) {
+		switch (type) {
+		case SECOND_CLASS:
+			return "2S";
+		case SLEEPER_CLASS:
+			return "SL";
+		case AC3_TIER:
+			return "3A";
+		case AC2_TIER:
+			return "2A";
+		case AC1_TIER:
+			return "1A";
+		case AC_CHAIR_CAR:
+			return "CC";
+		case EXECUTIVE_CHAIR_CAR:
+			return "EC";
+		case AC3_ECONOMY:
+			return "3E";
+		default:
+			throw new IllegalArgumentException("Unknown seat type " + type);
+		}
+	}
+
+	/** Sleeper classes (berths) as opposed to sitting classes (seats) */
+	public static boolean hasBerths(Seat_type type) {
+		return type == Seat_type.SLEEPER_CLASS || type == Seat_type.AC3_TIER || type == Seat_type.AC2_TIER
+				|| type == Seat_type.AC1_TIER || type == Seat_type.AC3_ECONOMY;
+	}
+
 	public static boolean isLower(String berth) {
 		return LOWER.equals(berth) || SIDE_LOWER.equals(berth);
 	}
