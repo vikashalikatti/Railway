@@ -1,5 +1,30 @@
 # Changelog — Railway backend
 
+## v1.10.0 — 9 Nov 2026
+Safer seating, boarding help, and importing trains in bulk. Use with frontend v1.15.0. New columns
+on passenger (needs_assistance, helper, companion_id, companion_note, near_women) and an index on
+station.station_code are added by Hibernate.
+- Solo women: a woman (12+) who is the only passenger with a berth on her ticket is seated, when
+  possible, in a bay where other women (18+) are booked for an overlapping stretch. It works inside
+  the seat allocation (SeatPicker "near" bonus); nobody is ever shown where women sit. Her ticket
+  says "Seated in a bay with other women" when it worked.
+- Boarding help: a senior (60+) travelling alone can tick "Needs boarding help"; adults (18-59)
+  can volunteer as helpers. Helpers and seniors are seated near each other, and each senior is
+  matched with one helper in the same coach who is on the train when the senior boards (at
+  booking, when someone cancels, and again at the first chart). Both tickets and emails show the
+  match (first name, coach and berth). The admin chart has a "Boarding help" column.
+- Bulk import (admin): GET/POST /admin/import/bundled imports the bundled Indian Railways list
+  (2,215 trains with reserved classes, 3,964 stations; DataMeet open data, CC0, collected 2016,
+  so timings may be out of date and every train runs daily). POST /admin/import/upload takes a CSV
+  or JSON file (up to 20 MB). Options: coaches per class, base fare, only trains stopping at some
+  stations, at most N trains. GET /admin/import/status shows progress. Trains already in the
+  database are skipped, never changed; new station codes are added to the directory. Runs in the
+  background; SQL logging is paused while it runs.
+- GET /admin/trains?q=&limit= searches on the server (number, name, first or last station) and
+  returns at most 200 trains; GET /admin/trains/{no} returns one train.
+- Thousands of trains: searches, connections, the chart scheduler and reports no longer load every
+  train with every stop. They query only the trains that can match.
+
 ## v1.9.0 — 9 Nov 2026
 Passenger and admin features. Use with frontend v1.14.0. New tables saved_passenger and train_run,
 and new columns on passenger (no_berth, meal, bedroll, extras_fare) and booking (refund_amount),

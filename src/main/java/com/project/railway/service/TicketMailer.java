@@ -137,6 +137,11 @@ public class TicketMailer {
 				now = "Cancelled";
 			}
 			String extras = extrasLabel(p);
+			if (Passenger.CONFIRMED.equals(p.getStatus()) && p.getCompanionNote() != null) {
+				extras = extras.isEmpty() ? p.getCompanionNote() : extras + ". " + p.getCompanionNote();
+			} else if (Passenger.CONFIRMED.equals(p.getStatus()) && Boolean.TRUE.equals(p.getNeedsAssistance())) {
+				extras = (extras.isEmpty() ? "" : extras + ". ") + "Boarding help asked for; no helper on this coach yet";
+			}
 			lines.add(new Line(i++, p.getName(), p.getAge(), p.getGender() + (extras.isEmpty() ? "" : ", " + extras), booked,
 					now, Passenger.CONFIRMED.equals(p.getStatus()) || Passenger.NO_BERTH.equals(p.getStatus()),
 					Passenger.CANCELLED.equals(p.getStatus())));

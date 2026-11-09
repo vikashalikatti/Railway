@@ -254,7 +254,9 @@ public class RunService {
 			long bookings = 0, passengers = 0, cancelled = 0, wlAtBooking = 0, fromWl = 0, notAtChart = 0;
 			double revenue = 0, refunds = 0;
 
+			java.util.Set<Integer> bookedTrains = new java.util.TreeSet<>();
 			for (Booking b : bookingRepository.findByJourneyDateBetween(from, to)) {
+				bookedTrains.add(b.getTrainNumber());
 				bookings++;
 				String key = b.getTrainNumber() + "|" + b.getSeatType();
 				long[] c = counts.computeIfAbsent(key, k -> new long[3]);
@@ -303,7 +305,8 @@ public class RunService {
 
 			// berths that ran: coaches running each day the train runs
 			List<ClassRow> byClass = new ArrayList<>();
-			for (Train t : trainRepository.findAll()) {
+			// only trains with bookings in the range (with thousands of imported trains, the rest would be rows of zeros)
+			for (Train t : trainRepository.findAllById(bookedTrains)) {
 				if (t.getCoaches() == null || t.getSchedule() == null || t.getSchedule().getRunningWeeks() == null) {
 					continue;
 				}

@@ -165,7 +165,7 @@ public class ChartService {
 								: "Not confirmed at charting";
 				passengers.add(new ChartView.ChartPassenger(b.getBookingId(), p.getName(), p.getAge(), p.getGender(),
 						b.getSeatType(), p.getCoachNumber(), p.getSeatNumber(), p.getBerthType(), b.getFromStation(),
-						b.getToStation(), Quota.parse(b.getQuota()).label, status));
+						b.getToStation(), Quota.parse(b.getQuota()).label, status, assistance(p)));
 			}
 		}
 
@@ -180,5 +180,17 @@ public class ChartService {
 		structure.setMessage(message);
 		structure.setStatus(status.value());
 		return new ResponseEntity<>(structure, status);
+	}
+
+	/** For station staff: who asked for boarding help, who volunteered, and who they're matched with */
+	private static String assistance(com.project.railway.dto.Passenger p) {
+		boolean needs = Boolean.TRUE.equals(p.getNeedsAssistance());
+		boolean helper = Boolean.TRUE.equals(p.getHelper());
+		if (!needs && !helper) {
+			return null;
+		}
+		String role = needs ? "Needs boarding help" : "Volunteer helper";
+		return p.getCompanionNote() == null ? role + (needs ? ", no helper yet" : ", not matched")
+				: role + ". " + p.getCompanionNote();
 	}
 }

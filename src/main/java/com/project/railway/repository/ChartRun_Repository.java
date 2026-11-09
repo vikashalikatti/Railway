@@ -28,4 +28,7 @@ public interface ChartRun_Repository extends JpaRepository<ChartRun, Long> {
 	ChartRun lock(@Param("train") int train, @Param("date") LocalDate date);
 
 	ChartRun findByTrainNumberAndJourneyDate(int trainNumber, LocalDate journeyDate);
+
+	/** Chart rows for a few days, read once per scheduler pass */
+	java.util.List<ChartRun> findByJourneyDateBetween(LocalDate from, LocalDate to);
 }

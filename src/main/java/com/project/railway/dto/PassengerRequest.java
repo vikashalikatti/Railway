@@ -17,4 +17,8 @@ public class PassengerRequest {
 	private String meal;
 	/** Sleeper only: add a bedroll (AC classes include one) */
 	private boolean bedroll;
+	/** Senior (60+) travelling alone: asks for a volunteer helper on the same coach */
+	private boolean needsAssistance;
+	/** Adult (18-59): volunteers to help a senior traveller who asked for boarding assistance */
+	private boolean helper;
 }

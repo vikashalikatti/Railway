@@ -37,6 +37,7 @@ import com.project.railway.dto.TravelViews;
 import com.project.railway.dto.SavedPassenger;
 import com.project.railway.helper.BookingException;
 import com.project.railway.helper.CoachLayout;
+import com.project.railway.helper.CompanionRules;
 import com.project.railway.helper.FareCalculator;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.Quota;
@@ -318,6 +319,13 @@ public class BookingService {
 				: (s.getStationName() == null ? "" : s.getStationName().trim().toLowerCase(Locale.ROOT));
 	}
 
+	/** Numbers of the trains with a stop at this place (so a search loads only those trains) */
+	private Set<Integer> numbersStoppingAt(StationDirectory.Place place) {
+		Set<String> codes = place.codes().isEmpty() ? Set.of("-") : place.codes();
+		Set<String> names = place.names().isEmpty() ? Set.of("-") : place.names();
+		return new java.util.HashSet<>(trainRepository.findNumbersStoppingAt(codes, names));
+	}
+
 	private static boolean runsOn(Train t, LocalDate date) {
 		String day = date.getDayOfWeek().name();
 		return t.getSchedule() != null && t.getSchedule().getRunningWeeks() != null && Arrays
@@ -338,7 +346,9 @@ public class BookingService {
 			StationDirectory.Place origin = stationDirectory.resolve(from);
 			StationDirectory.Place destination = stationDirectory.resolve(to);
 			LocalDate today = LocalDate.now(IST);
-			List<Train> running = trainRepository.findAll().stream()
+			Set<Integer> candidates = numbersStoppingAt(origin);
+			candidates.addAll(numbersStoppingAt(destination));
+			List<Train> running = trainRepository.findAllById(candidates).stream()
 					.filter(t -> runsOn(t, date) && t.getStations() != null && t.getStations().size() > 1)
 					.filter(t -> { TrainRun r = trainRunRepository.findByTrainNumberAndJourneyDate(t.getTrainNumber(), date); return r == null || !r.isCancelled(); })
 					.toList();
@@ -433,7 +443,11 @@ public class BookingService {
 
 			String day = date.getDayOfWeek().name();
 			List<TrainMatch> matches = new java.util.ArrayList<>();
-			for (Train train : trainRepository.findAll()) {
+			Set<Integer> candidates = numbersStoppingAt(origin);
+			candidates.retainAll(numbersStoppingAt(destination));
+			List<Train> found = new java.util.ArrayList<>(trainRepository.findAllById(candidates));
+			found.sort(java.util.Comparator.comparingInt(Train::getTrainNumber));
+			for (Train train : found) {
 				if (train.getSchedule() == null || train.getSchedule().getRunningWeeks() == null || Arrays
 						.stream(train.getSchedule().getRunningWeeks()).noneMatch(d -> d != null && d.trim().equalsIgnoreCase(day))) {
 					continue;
@@ -657,8 +671,23 @@ public class BookingService {
 			throw new BookingException(HttpStatus.BAD_REQUEST,
 					"At least one passenger needs a berth: children without a berth travel with someone who has one.");
 		}
+		int withBerth = (int) passengers.stream()
+				.filter(p -> !TravelRules.travelsWithoutBerth(p.getAge(), p.isNoBerth())).count();
+		boolean asksForHelp = passengers.stream().anyMatch(PassengerRequest::isNeedsAssistance);
 		for (int i = 0; i < passengers.size(); i++) {
 			PassengerRequest p = passengers.get(i);
+			if (p.isNeedsAssistance() && !CompanionRules.canAskForAssistance(p.getAge(), withBerth)) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, "Passenger " + (i + 1)
+						+ ": boarding help is for passengers aged 60 or over travelling alone.");
+			}
+			if (p.isHelper() && !CompanionRules.canHelp(p.getAge())) {
+				throw new BookingException(HttpStatus.BAD_REQUEST,
+						"Passenger " + (i + 1) + ": helpers must be 18 to 59 years old.");
+			}
+			if (p.isHelper() && asksForHelp) {
+				throw new BookingException(HttpStatus.BAD_REQUEST,
+						"Passenger " + (i + 1) + " can't volunteer as a helper on a ticket that asks for help.");
+			}
 			if (p.isNoBerth() && p.getAge() >= TravelRules.CHILD_UNDER) {
 				throw new BookingException(HttpStatus.BAD_REQUEST,
 						"Passenger " + (i + 1) + ": only children aged 5 to 11 can choose no berth.");
