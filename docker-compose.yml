@@ -1,0 +1,69 @@
+# MySQL + Railway API + web app on one computer.
+#   1. Copy .env.example to .env and fill it in.
+#   2. docker compose up -d --build
+#   3. Open http://localhost:8081 (or the WEB_PORT you chose).
+# Stop: docker compose down (data stays) / docker compose down -v (also deletes the database).
+name: railway
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: railway_boot_api
+      MYSQL_USER: ${DB_USERNAME:-railway}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      TZ: Asia/Kolkata
+    volumes:
+      - mysql-data:/var/lib/mysql
+    # 3307 on your computer, so it doesn't clash with a MySQL you already run on 3306 (for Workbench)
+    ports:
+      - "127.0.0.1:3307:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  backend:
+    build: .
+    image: railway-backend:1.12.0
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/railway_boot_api?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Kolkata
+      DB_USERNAME: ${DB_USERNAME:-railway}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME:?Set MAIL_USERNAME in .env}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:?Set MAIL_PASSWORD in .env}
+      PAYMENTS_REQUIRED: ${PAYMENTS_REQUIRED:-true}
+      RATE_LIMIT: ${RATE_LIMIT:-true}
+      DOCS_PUBLIC: ${DOCS_PUBLIC:-false}
+      # nginx (the web app container) passes on the client's address
+      TRUST_PROXY: "true"
+      # no SQL in the logs (it would show passengers' details)
+      LOGGING_LEVEL_ORG_HIBERNATE_SQL: WARN
+      LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND: WARN
+    # The API directly, for Postman or Swagger UI; the web app doesn't need it
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  frontend:
+    build: ${FRONTEND_DIR:-../Railway_Frontend}
+    image: railway-frontend:1.17.0
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      BACKEND_URL: http://backend:8080
+    ports:
+      - "${WEB_PORT:-8081}:8080"
+
+volumes:
+  mysql-data:

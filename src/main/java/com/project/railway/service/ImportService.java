@@ -55,7 +55,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.persistence.EntityManager;
 
 /**
- * Bulk import of trains for the admin: the bundled Indian Railways list, or a CSV / JSON file.
+ * Bulk import of trains for the admin: the bundled Karnataka list, or a CSV / JSON file.
  *
  * Runs in the background (one import at a time) and reports progress through status():
  *  1. New station codes are added to the station directory (existing stations are kept as they are).
@@ -71,7 +71,7 @@ public class ImportService {
 	private static final Logger log = LoggerFactory.getLogger(ImportService.class);
 	private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 	private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.ENGLISH);
-	private static final String BUNDLED = "data/indian-railways.json.gz";
+	private static final String BUNDLED = "data/karnataka-railways.json.gz";
 	private static final int CHUNK = 20;
 	private static final int SEATS_PER_INSERT = 500;
 	private static final long MAX_UPLOAD_BYTES = 20L * 1024 * 1024;
@@ -295,6 +295,15 @@ public class ImportService {
 						m.setLongitude(st.longitude());
 						positioned.add(m);
 					}
+				}
+			}
+			// every station the list names joins the directory, even one no imported train stops at yet
+			for (TrainImport.ImportStation st : batch.stations()) {
+				if (!directory.containsKey(st.code())) {
+					StationMaster m = new StationMaster(st.code(), st.name(), blankOr(st.city(), TrainImport.cityOf(st.name())),
+							st.state(), st.latitude(), st.longitude());
+					directory.put(m.getCode(), m);
+					added.add(m);
 				}
 			}
 			for (int i = 0; i < added.size(); i += 500) {

@@ -19,8 +19,10 @@ import jakarta.servlet.http.HttpServletResponse;
  * Requests per minute per client on public and sensitive endpoints, so nobody can try every PNR,
  * flood log-ins or hammer the payment page. Over the limit: 429 with a Retry-After header.
  *
- * The client is the connecting IP address. X-Forwarded-For is only trusted from this machine (the
- * Vite dev proxy adds it), because anyone else could put any address there.
+ * The client is the connecting IP address. X-Forwarded-For is only trusted from a proxy we know,
+ * because anyone else could put any address there: from this machine (the Vite dev proxy adds it)
+ * and, when TRUST_PROXY=true, from private network addresses (nginx in Docker, a Kubernetes
+ * ingress). The last address in the header is used: the one our own proxy wrote.
  */
 public class RateLimitFilter extends OncePerRequestFilter {
 
@@ -28,8 +30,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
 	}
 
 	private final Map<String, Rule> rules = new LinkedHashMap<>();
+	private final boolean trustPrivateProxies;
 
 	public RateLimitFilter() {
+		this(false);
+	}
+
+	public RateLimitFilter(boolean trustPrivateProxies) {
+		this.trustPrivateProxies = trustPrivateProxies;
 		add("POST", "/customer/login", 20);
 		add("POST", "/admin/login", 20);
 		add("POST", "/customer/signup", 10);
@@ -57,7 +65,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 		String path = req.getRequestURI().substring(req.getContextPath().length());
 		for (Rule r : rules.values()) {
 			if (r.method().equals(req.getMethod()) && path.startsWith(r.prefix())) {
-				if (!r.limiter().allow(r.prefix() + "|" + client(req), System.currentTimeMillis())) {
+				if (!r.limiter().allow(r.prefix() + "|" + client(req, trustPrivateProxies), System.currentTimeMillis())) {
 					res.setStatus(429);
 					res.setHeader("Retry-After", String.valueOf(r.limiter().retryAfterSeconds()));
 					res.setContentType(MediaType.APPLICATION_JSON_VALUE);
@@ -72,21 +80,26 @@ public class RateLimitFilter extends OncePerRequestFilter {
 		chain.doFilter(req, res);
 	}
 
-	static String client(HttpServletRequest req) {
+	static String client(HttpServletRequest req, boolean trustPrivateProxies) {
 		String remote = req.getRemoteAddr();
 		String forwarded = req.getHeader("X-Forwarded-For");
-		if (forwarded != null && !forwarded.isBlank() && isLocal(remote)) {
-			String first = forwarded.split(",")[0].trim();
-			if (!first.isEmpty() && first.length() <= 45) {
-				return first;
+		if (forwarded != null && !forwarded.isBlank() && fromProxy(remote, trustPrivateProxies)) {
+			String[] hops = forwarded.split(",");
+			String last = hops[hops.length - 1].trim();
+			if (!last.isEmpty() && last.length() <= 45) {
+				return last;
 			}
 		}
 		return remote;
 	}
 
-	private static boolean isLocal(String ip) {
+	private static boolean fromProxy(String ip, boolean trustPrivate) {
 		try {
-			return ip != null && InetAddress.getByName(ip).isLoopbackAddress();
+			if (ip == null) {
+				return false;
+			}
+			InetAddress a = InetAddress.getByName(ip);
+			return a.isLoopbackAddress() || (trustPrivate && a.isSiteLocalAddress());
 		} catch (IOException e) {
 			return false;
 		}

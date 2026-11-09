@@ -53,6 +53,10 @@ public class SecurityConfiguration {
 	@Value("${app.rate-limit.enabled:true}")
 	private boolean rateLimits;
 
+	/** Behind nginx / Kubernetes (TRUST_PROXY=true): the client address comes from X-Forwarded-For */
+	@Value("${app.trust-proxy:false}")
+	private boolean trustProxy;
+
 	@Bean
 	BCryptPasswordEncoder bCryptPasswordEncoder() {
 		return new BCryptPasswordEncoder();
@@ -62,7 +66,7 @@ public class SecurityConfiguration {
 	SecurityFilterChain filterChain(HttpSecurity security, JwtUtil jwtUtil) throws Exception {
 		if (rateLimits) {
 			// added first, so it runs before the token check
-			security.addFilterBefore(new RateLimitFilter(), UsernamePasswordAuthenticationFilter.class);
+			security.addFilterBefore(new RateLimitFilter(trustProxy), UsernamePasswordAuthenticationFilter.class);
 		}
 		security.cors(Customizer.withDefaults())
 				.csrf(csrf -> csrf.disable())
@@ -82,7 +86,7 @@ public class SecurityConfiguration {
 				.authorizeHttpRequests(request -> {
 					request.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 							.requestMatchers("/error").permitAll()
-							.requestMatchers("/actuator/health").permitAll()
+							.requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
 							// open: getting in, and live station suggestions
 							.requestMatchers(HttpMethod.POST, "/admin/login", "/admin/create").permitAll()
 							.requestMatchers(HttpMethod.POST, "/customer/signup", "/customer/login",

@@ -1,0 +1,15 @@
+# Settings that aren't secret, shared by the backend pods
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: railway-config
+  namespace: railway
+data:
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/railway_boot_api?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Kolkata
+  SPRING_MAIL_USERNAME: you@gmail.com
+  PAYMENTS_REQUIRED: "true"
+  RATE_LIMIT: "true"
+  DOCS_PUBLIC: "false"
+  TRUST_PROXY: "true"
+  LOGGING_LEVEL_ORG_HIBERNATE_SQL: WARN
+  LOGGING_LEVEL_ORG_HIBERNATE_ORM_JDBC_BIND: WARN

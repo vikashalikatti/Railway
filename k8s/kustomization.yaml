@@ -1,0 +1,9 @@
+# kubectl apply -k k8s/   (create the Secret first: see docs/DEPLOYMENT.md)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - config.yaml
+  - mysql.yaml
+  - backend.yaml
+  - frontend.yaml

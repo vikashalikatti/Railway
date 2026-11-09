@@ -94,22 +94,32 @@ class TrainImportTest {
 	}
 
 	@Test
-	void bundledIndianRailwaysList() throws Exception {
-		try (InputStream in = TrainImportTest.class.getResourceAsStream("/data/indian-railways.json.gz")) {
-			assertNotNull(in, "data/indian-railways.json.gz is on the classpath");
+	void bundledKarnatakaList() throws Exception {
+		try (InputStream in = TrainImportTest.class.getResourceAsStream("/data/karnataka-railways.json.gz")) {
+			assertNotNull(in, "data/karnataka-railways.json.gz is on the classpath");
 			TrainImport.Batch b = TrainImport.readBundled(in);
-			assertTrue(b.trains().size() > 2000, "trains: " + b.trains().size());
-			assertTrue(b.stations().size() > 3000);
+			assertTrue(b.trains().size() > 400, "trains: " + b.trains().size());
+			assertTrue(b.stations().stream().filter(s -> "Karnataka".equals(s.state())).count() >= 400);
 			assertEquals(List.of(), b.problems());
-			TrainImport.ImportTrain k = b.trains().stream().filter(t -> t.number() == 12627).findFirst().orElseThrow();
-			assertEquals("SBC", k.stops().get(0).code());
-			assertEquals("NDLS", k.stops().get(k.stops().size() - 1).code());
-			// Karnataka Express reaches New Delhi on Day 3, and the times agree with the day numbers
-			assertEquals(Integer.valueOf(3), k.stops().get(k.stops().size() - 1).day());
-			var tl = StopDays.timeline(k.stops().stream().map(s -> new StopDays.Stop(s.arrival(), s.departure(), null)).toList());
-			assertEquals(3, tl.day(k.stops().size() - 1));
+			// Vande Bharat: chair car coaches from the list, runs 6 days a week
+			TrainImport.ImportTrain vb = b.trains().stream().filter(t -> t.number() == 20661).findFirst().orElseThrow();
+			assertEquals("Vande Bharat", vb.type());
+			assertEquals("SBC", vb.stops().get(0).code());
+			assertEquals("DWR", vb.stops().get(vb.stops().size() - 1).code());
+			assertEquals(6, vb.days().size());
+			assertEquals(Integer.valueOf(7), vb.coaches().get(Seat_type.AC_CHAIR_CAR));
+			assertEquals(12, b.trains().stream().filter(t -> "Vande Bharat".equals(t.type())).count());
+			// a long-distance train is cut to its Karnataka part and starts again at km 0 on Day 1
+			TrainImport.ImportTrain g = b.trains().stream().filter(t -> t.number() == 16535).findFirst().orElseThrow();
+			assertEquals("YPR", g.stops().get(0).code());
+			assertEquals(0.0, g.stops().get(0).km());
+			assertEquals(Integer.valueOf(1), g.stops().get(0).day());
+			// passenger trains get second-sitting coaches
+			assertTrue(b.trains().stream().anyMatch(t -> t.coaches() != null && t.coaches().containsKey(Seat_type.SECOND_CLASS)));
 			for (TrainImport.ImportTrain t : b.trains()) {
 				assertNull(TrainImport.problem(t), "train " + t.number());
+				var tl = StopDays.timeline(t.stops().stream().map(s -> new StopDays.Stop(s.arrival(), s.departure(), null)).toList());
+				assertTrue(t.stops().get(t.stops().size() - 1).day() == tl.day(t.stops().size() - 1), "days of " + t.number());
 			}
 		}
 	}

@@ -25,8 +25,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * unit-tested.
  *
  * Three sources:
- *  1. The bundled Indian Railways list (data/indian-railways.json.gz): compact arrays
- *     {"stations":[[code,name,city,state,lat,lon]], "trains":[[number,name,type,[classes],[[code,arr,dep,km]]]]}
+ *  1. The bundled Karnataka list (data/karnataka-railways.json.gz): compact arrays
+ *     {"stations":[[code,name,city,state,lat,lon]], "trains":[[number,name,type,[classes],[[code,arr,dep,km,day]],[days]?,{coaches}?]]}
  *  2. A JSON file the admin uploads:
  *     {"stations":[{"code","name","city","state","latitude","longitude"}],
  *      "trains":[{"number","name","type","days":["monday",…],"classes":["SL","3A"],
@@ -86,8 +86,21 @@ public final class TrainImport {
 				stops.add(new ImportStop(s.get(0).asText(), null, LocalTime.parse(s.get(1).asText()),
 						LocalTime.parse(s.get(2).asText()), s.get(3).asDouble(), s.size() > 4 ? s.get(4).asInt() : null));
 			}
-			add(trains, problems, new ImportTrain(t.get(0).asInt(), t.get(1).asText(), t.get(2).asText(), ALL_DAYS,
-					classes, null, stops));
+			// optional: running days (null = every day) and coaches per class (null = the admin's choice)
+			List<String> days = ALL_DAYS;
+			if (t.size() > 5 && t.get(5).isArray()) {
+				List<String> given = new ArrayList<>();
+				t.get(5).forEach(d -> given.add(d.asText()));
+				days = given;
+			}
+			Map<Seat_type, Integer> coaches = null;
+			if (t.size() > 6 && t.get(6).isObject()) {
+				Map<Seat_type, Integer> given = new EnumMap<>(Seat_type.class);
+				t.get(6).fields().forEachRemaining(e -> given.put(Seat_type.valueOf(e.getKey()), e.getValue().asInt()));
+				coaches = given;
+			}
+			add(trains, problems, new ImportTrain(t.get(0).asInt(), t.get(1).asText(), t.get(2).asText(), days,
+					classes, coaches, stops));
 		}
 		return new Batch(root.path("source").asText("Bundled list"), stations, trains, problems);
 	}

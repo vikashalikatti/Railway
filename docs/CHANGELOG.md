@@ -1,5 +1,36 @@
 # Changelog — Railway backend
 
+## v1.12.0 — 9 Nov 2026
+Karnataka trains, Docker and Kubernetes. Use with frontend v1.17.0. No database changes.
+
+- **Karnataka train list** replaces the all-India list in the admin's import: 438 trains and 430
+  stations (418 in Karnataka, found with Karnataka's state boundary; the rest are the far ends of
+  Vande Bharat routes, such as Chennai, Madgaon and Pune).
+  - Every train with at least two stops in Karnataka, cut to its stops inside the state, with km
+    and day numbers starting again from its first Karnataka stop.
+  - Passenger, MEMU and DEMU trains are included with 4 second-sitting (2S) coaches.
+  - All 12 Vande Bharat trains serving Karnataka, from public timetables: 20661/62, 26751/52,
+    20607/08, 22231/32, 20645/46, 20669/70, with their running days, full routes and chair car
+    (CC) + executive (EC) coaches.
+  - Big stations use today's names (KSR Bengaluru, Mysuru, Hubballi, Belagavi, Kalaburagi with code
+    KLBG, SMVT Bengaluru SMVB is new).
+  - Every station in the list joins the station directory on import, even one no imported train
+    stops at.
+  - Bundled lists can now give each train's running days and coaches.
+  - `tools/build-karnataka-railways.py` rebuilds the list. `tools/build-indian-railways.py` stays
+    for anyone who wants all of India again.
+- **Docker**: `Dockerfile` (builds the jar and runs the unit tests inside Docker; runs as a
+  non-root user; health check), `docker-compose.yml` (MySQL 8.4 + API + web app) and `.env.example`.
+- **Kubernetes** (`k8s/`): MySQL StatefulSet with its own disk, backend and web app Deployments
+  with startup / readiness / liveness checks, rolling updates and CPU autoscalers, a ConfigMap and
+  a Secret template. `kubectl apply -k k8s/`.
+- **docs/DEPLOYMENT.md**: installing Docker Desktop and Kubernetes on Windows, running with Docker
+  Compose, deploying, scaling, updating and troubleshooting on Kubernetes.
+- `TRUST_PROXY=true`: behind nginx / Kubernetes, rate limits use the client address from
+  `X-Forwarded-For` when the request comes from a private network address. The last address in the
+  header is used now (the one our own proxy wrote), also for the Vite dev proxy.
+- Health checks: `/actuator/health/liveness` and `/actuator/health/readiness` are open.
+
 ## v1.11.1 — 9 Nov 2026
 - README: what the project does, setup and environment variables, test payments, how booking works,
   the main endpoints and the project structure. No code changes. Use with frontend v1.16.1.

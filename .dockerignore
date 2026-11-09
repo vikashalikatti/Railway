@@ -1,0 +1,13 @@
+target
+bin
+.git
+.idea
+.settings
+.classpath
+.project
+.env
+.env.*
+k8s
+docs
+tools
+*.log

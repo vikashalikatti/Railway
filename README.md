@@ -37,7 +37,8 @@ This repository is the **Spring Boot REST API**. The web app that uses it is
 ### For admins
 - **Add and edit trains** step by step: details, running days, stops (km estimated from station
   positions, day of each stop), fare, coaches.
-- **Import trains in bulk**: the bundled list of 2,215 Indian trains, or your own CSV / JSON file.
+- **Import trains in bulk**: the bundled list of **438 trains in Karnataka** (including all 12
+  Vande Bharat trains serving the state) and **418 Karnataka stations**, or your own CSV / JSON file.
 - **Quotas per class**: Tatkal, Premium Tatkal, Ladies, Senior, Divyangjan shares and RAC berths.
 - **Extra coaches on rush days**, or remove coaches from a date.
 - **Reservation charts** with every passenger, prepared automatically 4 hours before departure.
@@ -62,7 +63,22 @@ This repository is the **Spring Boot REST API**. The web app that uses it is
 
 ---
 
-## Getting started
+## Quick start with Docker
+
+With [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed, the database, the
+API and the web app run with one command (the web app's folder must sit next to this one):
+
+```powershell
+copy .env.example .env     # then fill in your passwords
+docker compose up -d --build
+```
+
+Open **http://localhost:8081**. Installing Docker, running on **Kubernetes** (scaling, rolling
+updates, health checks) and every command you need: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+---
+
+## Getting started (without Docker)
 
 ### 1. Requirements
 - Java 17 or newer (JDK), Maven (or the included `mvnw`), MySQL 8.
@@ -82,6 +98,7 @@ environment variables:
 | `DOCS_PUBLIC` | `true` to turn on Swagger UI at `/swagger-ui.html` | no |
 | `PAYMENTS_REQUIRED` | `false` to book without paying | no (default `true`) |
 | `RATE_LIMIT` | `false` to switch off per-client rate limits | no (default `true`) |
+| `TRUST_PROXY` | `true` behind nginx, Docker or Kubernetes: the client's address comes from `X-Forwarded-For` | no (default `false`) |
 
 Also edit these two lines in `src/main/resources/application.properties` (they aren't secret):
 - `spring.datasource.url` — use `localhost` if MySQL runs on your machine. The database
@@ -113,8 +130,9 @@ POST /admin/create
 ```
 
 ### 4. Add trains
-Log in to the admin console and either **Add a train** step by step, or **Import trains** (try
-"At most 20" first: the full list creates about a million seat rows).
+Log in to the admin console and either **Add a train** step by step, or **Import trains → Import
+Karnataka trains** (438 trains; every Karnataka station joins the station directory). It takes a few
+minutes; try "At most 20" first if you only want a quick look.
 
 ### 5. Run the tests
 ```powershell
@@ -228,15 +246,26 @@ src/main/java/com/project/railway
 src/main/resources
 ├── application.properties
 ├── templates       email templates (ticket, OTP, admin log-in)
-└── data            bundled Indian Railways train list (gzipped JSON)
-tools/build-indian-railways.py   rebuilds the bundled list from DataMeet's data
-docs/                            seat allocation, security, changelog
+└── data            bundled Karnataka train list (gzipped JSON)
+tools/build-karnataka-railways.py   rebuilds the bundled list (DataMeet data + Vande Bharat timetables)
+tools/build-indian-railways.py      the same for all of India, if you ever want it back
+Dockerfile, docker-compose.yml      containers: API, MySQL and the web app
+k8s/                                Kubernetes manifests (kubectl apply -k k8s/)
+docs/                               deployment, seat allocation, security, changelog
 ```
 
 ---
 
 ## Data credits
 
-The bundled train list comes from [DataMeet's Indian Railways data](https://github.com/datameet/railways)
-(CC0, collected in 2016). Timings and train numbers may have changed since; every imported train runs
-daily because that data has no running days.
+The bundled Karnataka list is built from [DataMeet's Indian Railways data](https://github.com/datameet/railways)
+(CC0, collected in 2016): every station inside Karnataka, and every train with at least two stops in
+Karnataka, cut to its stops in the state. Those timings may have changed since, and those trains run
+daily because the data has no running days. Passenger, MEMU and DEMU trains get second-sitting (2S)
+coaches.
+
+The 12 **Vande Bharat** trains (20661/62 Bengaluru–Dharwad, 26751/52 Belagavi–Bengaluru, 20607/08
+Chennai–Mysuru, 22231/32 Kalaburagi–SMVT Bengaluru, 20645/46 Mangaluru–Madgaon, 20669/70
+Hubballi–Pune) were added by hand from public timetables (2025), with their running days, chair car
+(CC) and executive (EC) coaches and full routes. Check timings against official sources before
+relying on them.
