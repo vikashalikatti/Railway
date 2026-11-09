@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,9 +17,11 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.project.railway.dto.Admin;
 import com.project.railway.dto.ChartView;
+import com.project.railway.dto.TravelViews;
 import com.project.railway.dto.QuotaView;
 import com.project.railway.dto.Route;
 import com.project.railway.dto.Schedule;
@@ -27,6 +30,7 @@ import com.project.railway.dto.StationMaster;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.service.Admin_Service;
+import com.project.railway.service.ImportService;
 
 import freemarker.core.ParseException;
 import freemarker.template.MalformedTemplateNameException;
@@ -35,6 +39,13 @@ import freemarker.template.TemplateNotFoundException;
 @RestController
 @RequestMapping("admin")
 public class Admin_Controller {
+
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.project.railway.service.RunService runService;
+
+	@Autowired
+	private ImportService importService;
+
 
 	@org.springframework.beans.factory.annotation.Autowired
 	private com.project.railway.service.ChartService chartService;
@@ -123,10 +134,93 @@ public class Admin_Controller {
 		return admin_Service.removeCoachesFrom(token, train_No, body);
 	}
 
-	/** All trains, for the admin page */
+	/** Cancel a train on a date: everyone booked is cancelled, refunded in full and emailed. Body: {"date","reason"} */
+	@PostMapping("/runs/{train_No}/cancel")
+	public ResponseEntity<ResponseStructure<TravelViews.Running>> cancelRun(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestBody Map<String, Object> body) {
+		return runService.cancel(token, train_No, body);
+	}
+
+	/** Reschedule: leaves delayMinutes late; everyone booked is emailed. Body: {"date","delayMinutes","reason"} */
+	@PostMapping("/runs/{train_No}/reschedule")
+	public ResponseEntity<ResponseStructure<TravelViews.Running>> rescheduleRun(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestBody Map<String, Object> body) {
+		return runService.reschedule(token, train_No, body);
+	}
+
+	/** Live position. Body: {"date","stop","departed","delayMinutes"} */
+	@PostMapping("/runs/{train_No}/position")
+	public ResponseEntity<ResponseStructure<TravelViews.Running>> runPosition(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No, @RequestBody Map<String, Object> body) {
+		return runService.position(token, train_No, body);
+	}
+
+	/** Occupancy, revenue, cancellations and waitlist trends for journeys between two dates (yyyy-MM-dd) */
+	@GetMapping("/reports")
+	public ResponseEntity<ResponseStructure<com.project.railway.service.RunService.Report>> report(
+			@RequestHeader("Bearer") String token, @RequestParam String from, @RequestParam String to) {
+		return runService.report(token, from, to);
+	}
+
+	/**
+	 * Trains for the admin page, by number: up to :limit (1-200, default 50), filtered by q (number,
+	 * name, first or last station). data holds the total number of matching trains.
+	 */
 	@GetMapping("/trains")
-	public ResponseEntity<ResponseStructure<List<Train>>> listTrains(@RequestHeader("Bearer") String token) {
-		return admin_Service.listTrains(token);
+	public ResponseEntity<ResponseStructure<List<Train>>> listTrains(@RequestHeader("Bearer") String token,
+			@RequestParam(required = false, defaultValue = "") String q,
+			@RequestParam(required = false, defaultValue = "50") int limit) {
+		return admin_Service.listTrains(token, q, limit);
+	}
+
+	/* ------------------------------------------------------------ bulk import */
+
+	/** What the bundled Indian Railways list holds */
+	@GetMapping("/import/bundled")
+	public ResponseEntity<ResponseStructure<java.util.Map<String, Object>>> importSummary(
+			@RequestHeader("Bearer") String token) {
+		return importService.bundledSummary(token);
+	}
+
+	/**
+	 * Imports the bundled list in the background. Body (all optional):
+	 * {"coaches":{"SL":4,"3A":2,…}, "baseFare":0, "addCoaches":true, "onlyStations":"SBC UBL", "limit":100}
+	 */
+	@PostMapping("/import/bundled")
+	public ResponseEntity<ResponseStructure<ImportService.Status>> importBundled(@RequestHeader("Bearer") String token,
+			@RequestBody(required = false) ImportService.Options options) {
+		return importService.startBundled(token, options);
+	}
+
+	/** Imports a CSV or JSON file in the background. options: the same JSON as above, as a form field. */
+	@PostMapping(value = "/import/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	public ResponseEntity<ResponseStructure<ImportService.Status>> importUpload(@RequestHeader("Bearer") String token,
+			@RequestParam("file") MultipartFile file, @RequestParam(value = "options", required = false) String options) {
+		ImportService.Options parsed = null;
+		if (options != null && !options.isBlank()) {
+			try {
+				parsed = new com.fasterxml.jackson.databind.ObjectMapper().readValue(options, ImportService.Options.class);
+			} catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+				ResponseStructure<ImportService.Status> bad = new ResponseStructure<>();
+				bad.setStatus(400);
+				bad.setMessage("The import options aren't valid.");
+				return ResponseEntity.badRequest().body(bad);
+			}
+		}
+		return importService.startUpload(token, file, parsed);
+	}
+
+	/** Progress of the running (or last) import */
+	@GetMapping("/import/status")
+	public ResponseEntity<ResponseStructure<ImportService.Status>> importStatus(@RequestHeader("Bearer") String token) {
+		return importService.status(token);
+	}
+
+	/** One train with its stops, fare and coaches */
+	@GetMapping("/trains/{train_No}")
+	public ResponseEntity<ResponseStructure<Train>> getTrain(@RequestHeader("Bearer") String token,
+			@PathVariable int train_No) {
+		return admin_Service.getTrain(token, train_No);
 	}
 
 	/** Adds a station to the directory. Body: {"code":"SBC","name":"KSR Bengaluru City Jn","city":"Bengaluru","state":"Karnataka"} */

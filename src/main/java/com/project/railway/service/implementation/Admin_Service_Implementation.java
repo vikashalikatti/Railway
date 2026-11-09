@@ -612,18 +612,41 @@ public class Admin_Service_Implementation implements Admin_Service {
 	}
 
 	@Override
-	public ResponseEntity<ResponseStructure<List<Train>>> listTrains(String token) {
+	@Transactional(readOnly = true)
+	public ResponseEntity<ResponseStructure<List<Train>>> listTrains(String token, String query, int limit) {
 		ResponseStructure<List<Train>> structure = new ResponseStructure<>();
 		if (!isAdmin(token)) {
 			structure.setMessage("Invalid or Expired Token, Please Login Again");
 			structure.setStatus(HttpStatus.UNAUTHORIZED.value());
 			return new ResponseEntity<>(structure, HttpStatus.UNAUTHORIZED);
 		}
-		List<Train> trains = train_Repository.findAll(org.springframework.data.domain.Sort.by("trainNumber"));
+		String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+		if (q.length() > 60) {
+			q = q.substring(0, 60);
+		}
+		int size = Math.max(1, Math.min(limit, 200));
+		List<Train> trains = train_Repository.search(q, org.springframework.data.domain.PageRequest.of(0, size));
+		long total = train_Repository.countSearch(q);
 		structure.setData2(trains);
-		structure.setMessage(trains.size() + " trains");
+		structure.setData(String.valueOf(total));
+		structure.setMessage(trains.size() < total ? trains.size() + " of " + total + " trains" : total + " trains");
 		structure.setStatus(HttpStatus.OK.value());
 		return new ResponseEntity<>(structure, HttpStatus.OK);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public ResponseEntity<ResponseStructure<Train>> getTrain(String token, int trainNo) {
+		ResponseStructure<Train> structure = new ResponseStructure<>();
+		if (!isAdmin(token)) {
+			return reply(structure, HttpStatus.UNAUTHORIZED, "Invalid or Expired Token, Please Login Again");
+		}
+		Train train = train_Repository.findByTrainNumber(trainNo);
+		if (train == null) {
+			return reply(structure, HttpStatus.NOT_FOUND, "Train " + trainNo + " doesn't exist.");
+		}
+		structure.setData2(train);
+		return reply(structure, HttpStatus.OK, "Train " + trainNo);
 	}
 
 	@Override

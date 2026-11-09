@@ -122,6 +122,21 @@ public interface CoachSeat_Repository extends JpaRepository<CoachSeat, Long> {
 			@Param("toStop") int toStop, @Param("quota") String quota, @Param("anyQuota") boolean anyQuota,
 			@Param("lim") int lim);
 
+	/** Free seats for a segment in one class, without locking: rows [id, coach_number, seat_number] */
+	@Query(value = "SELECT cs.id, c.coach_number, cs.seat_number FROM coach_seat cs JOIN coach c ON c.id = cs.coach_id"
+			+ " WHERE c.train_number = :train AND c.coach_type = :type AND" + FREE_FOR_SEGMENT + IN_QUOTA + COACH_RUNS
+			+ " ORDER BY c.id, cs.seat_number", nativeQuery = true)
+	List<Object[]> findFreeInClass(@Param("train") int train, @Param("type") String type, @Param("date") LocalDate date,
+			@Param("fromStop") int fromStop, @Param("toStop") int toStop, @Param("quota") String quota,
+			@Param("anyQuota") boolean anyQuota);
+
+	/** Locks these seats if they are still free, skipping seats other bookings have locked */
+	@Query(value = "SELECT cs.* FROM coach_seat cs WHERE cs.id IN (:ids) AND cs.id NOT IN (:exclude) AND"
+			+ FREE_FOR_SEGMENT + IN_QUOTA + " ORDER BY cs.id FOR UPDATE SKIP LOCKED", nativeQuery = true)
+	List<CoachSeat> lockFreeByIds(@Param("ids") Collection<Long> ids, @Param("exclude") Collection<Long> exclude,
+			@Param("date") LocalDate date, @Param("fromStop") int fromStop, @Param("toStop") int toStop,
+			@Param("quota") String quota, @Param("anyQuota") boolean anyQuota);
+
 	/**
 	 * Of the given (already locked) seats, the ones that are NOT free for the segment.
 	 * Run after locking: it reads the latest committed data, so it catches a booking

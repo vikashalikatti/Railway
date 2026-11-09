@@ -38,7 +38,9 @@ public interface Admin_Service {
 
 	ResponseEntity<ResponseStructure<Train>> delete(int train_No, String token);
 
-	ResponseEntity<ResponseStructure<List<Train>>> listTrains(String token);
+	ResponseEntity<ResponseStructure<List<Train>>> listTrains(String token, String query, int limit);
+
+	ResponseEntity<ResponseStructure<Train>> getTrain(String token, int trainNo);
 
 	ResponseEntity<ResponseStructure<StationMaster>> addStationMaster(StationMaster station, String token);
 

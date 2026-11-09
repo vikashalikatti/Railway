@@ -84,6 +84,8 @@ public class SecurityConfiguration {
 							.requestMatchers(HttpMethod.GET, "/customer/stations").permitAll()
 							// chart & vacancy: berths only, no personal details
 							.requestMatchers(HttpMethod.GET, "/customer/chart/**").permitAll()
+							// PNR status (no names) and running status
+							.requestMatchers(HttpMethod.GET, "/customer/pnr-status/**", "/customer/running/**").permitAll()
 							// everything else needs the right role
 							.requestMatchers("/admin/**").hasRole("ADMIN")
 							.requestMatchers("/customer/**").hasRole("CUSTOMER");

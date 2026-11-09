@@ -27,6 +27,6 @@ public record ChartView(int trainNumber, String trainName, String date, int stag
 
 	/** Admin only */
 	public record ChartPassenger(long pnr, String name, int age, String gender, String seatType, String coach,
-			Integer seat, String berth, String from, String to, String quota, String status) {
+			Integer seat, String berth, String from, String to, String quota, String status, String assistance) {
 	}
 }

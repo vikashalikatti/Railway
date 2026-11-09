@@ -29,6 +29,7 @@ import com.project.railway.dto.Train;
 import com.project.railway.helper.CoachLayout;
 import com.project.railway.helper.Quota;
 import com.project.railway.helper.Seat_type;
+import com.project.railway.helper.TravelRules;
 import com.project.railway.repository.Train_Repository;
 
 import freemarker.template.Configuration;
@@ -52,7 +53,7 @@ public class TicketMailer {
 	private static final DateTimeFormatter BOOKED_AT = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.ENGLISH);
 
 	public enum Event {
-		BOOKED, CONFIRMED_FROM_WAITLIST, CANCELLED, CHART_PREPARED
+		BOOKED, CONFIRMED_FROM_WAITLIST, CANCELLED, CHART_PREPARED, TRAIN_CANCELLED, RESCHEDULED
 	}
 
 	/** One row of the passenger table */
@@ -64,7 +65,7 @@ public class TicketMailer {
 	public record Ticket(Event event, String email, String customerName, long pnr, int trainNumber, String trainName,
 			String fromStation, String toStation, String journeyDate, String departs, String arrives,
 			String classLabel, String quotaLabel, String status, String totalFare, String distance, String bookedAt,
-			List<Line> passengers) {
+			List<Line> passengers, String note, String refund) {
 	}
 
 	@Autowired
@@ -89,15 +90,20 @@ public class TicketMailer {
 	 * Never throws: a problem here must not cancel the booking itself, so it returns null and logs.
 	 */
 	public Ticket ticket(Booking b, Event event) {
+		return ticket(b, event, null);
+	}
+
+	/** note: extra line for this email, e.g. the reason a train was cancelled or the new departure time */
+	public Ticket ticket(Booking b, Event event, String note) {
 		try {
-			return buildTicket(b, event);
+			return buildTicket(b, event, note);
 		} catch (RuntimeException e) {
 			log.error("Ticket email for PNR {} could not be prepared: {}", b.getBookingId(), e.toString());
 			return null;
 		}
 	}
 
-	private Ticket buildTicket(Booking b, Event event) {
+	private Ticket buildTicket(Booking b, Event event, String note) {
 		Customer c = b.getCustomer();
 		Seat_type type = Seat_type.valueOf(b.getSeatType());
 		Quota quota = Quota.parse(b.getQuota());
@@ -114,9 +120,14 @@ public class TicketMailer {
 		List<Line> lines = new ArrayList<>();
 		int i = 1;
 		for (Passenger p : b.getPassengers()) {
-			String booked = p.getWlNumber() != null ? waitLabel(quota, p.getWlNumber()) : seatLabel(p);
+			boolean noBerth = Boolean.TRUE.equals(p.getNoBerth());
+			String booked = noBerth ? noBerthLabel(p) : p.getWlNumber() != null ? waitLabel(quota, p.getWlNumber()) : seatLabel(p);
 			String now;
-			if (Passenger.CONFIRMED.equals(p.getStatus())) {
+			if (Passenger.NO_BERTH.equals(p.getStatus())) {
+				now = noBerthLabel(p);
+			} else if (Passenger.CANCELLED_TRAIN.equals(p.getCancelReason())) {
+				now = "Train cancelled";
+			} else if (Passenger.CONFIRMED.equals(p.getStatus())) {
 				now = seatLabel(p);
 			} else if (Passenger.WAITLISTED.equals(p.getStatus())) {
 				now = waitLabel(quota, p.getWlNumber() == null ? 0 : p.getWlNumber());
@@ -125,8 +136,15 @@ public class TicketMailer {
 			} else {
 				now = "Cancelled";
 			}
-			lines.add(new Line(i++, p.getName(), p.getAge(), p.getGender(), booked, now,
-					Passenger.CONFIRMED.equals(p.getStatus()), Passenger.CANCELLED.equals(p.getStatus())));
+			String extras = extrasLabel(p);
+			if (Passenger.CONFIRMED.equals(p.getStatus()) && p.getCompanionNote() != null) {
+				extras = extras.isEmpty() ? p.getCompanionNote() : extras + ". " + p.getCompanionNote();
+			} else if (Passenger.CONFIRMED.equals(p.getStatus()) && Boolean.TRUE.equals(p.getNeedsAssistance())) {
+				extras = (extras.isEmpty() ? "" : extras + ". ") + "Boarding help asked for; no helper on this coach yet";
+			}
+			lines.add(new Line(i++, p.getName(), p.getAge(), p.getGender() + (extras.isEmpty() ? "" : ", " + extras), booked,
+					now, Passenger.CONFIRMED.equals(p.getStatus()) || Passenger.NO_BERTH.equals(p.getStatus()),
+					Passenger.CANCELLED.equals(p.getStatus())));
 		}
 
 		return new Ticket(event, c.getEmail(), c.getName(), b.getBookingId(), b.getTrainNumber(), b.getTrainName(),
@@ -134,7 +152,9 @@ public class TicketMailer {
 				label(type) + " (" + CoachLayout.shortCode(type) + ")", quota.label, statusLabel(b.getStatus()),
 				String.format(Locale.ENGLISH, "₹%,.0f", b.getTotalFare()),
 				String.format(Locale.ENGLISH, "%.0f km", b.getDistanceKm()),
-				b.getBookedAt() == null ? "" : b.getBookedAt().format(BOOKED_AT), lines);
+				b.getBookedAt() == null ? "" : b.getBookedAt().format(BOOKED_AT), lines, note,
+				b.getRefundAmount() == null || b.getRefundAmount() <= 0 ? null
+						: String.format(Locale.ENGLISH, "₹%,.0f", b.getRefundAmount()));
 	}
 
 	/** Sends once the current transaction commits; immediately if there is no transaction */
@@ -210,6 +230,10 @@ public class TicketMailer {
 			return "Cancellation – PNR " + t.pnr() + " – " + trip;
 		case CHART_PREPARED:
 			return "Chart prepared – final status of PNR " + t.pnr() + " – " + trip;
+		case TRAIN_CANCELLED:
+			return "Train cancelled – PNR " + t.pnr() + " – full refund – " + trip;
+		case RESCHEDULED:
+			return "Train rescheduled – PNR " + t.pnr() + " – " + trip;
 		default:
 			return "Ticket booked – PNR " + t.pnr() + " – " + trip;
 		}
@@ -223,6 +247,10 @@ public class TicketMailer {
 			return "Cancellation done";
 		case CHART_PREPARED:
 			return "Chart prepared";
+		case TRAIN_CANCELLED:
+			return "Your train has been cancelled";
+		case RESCHEDULED:
+			return "Your train has been rescheduled";
 		default:
 			return "Booking successful";
 		}
@@ -238,6 +266,11 @@ public class TicketMailer {
 			return "The reservation chart for your train has been prepared. This is your final status. "
 					+ "Passengers still on the waitlist were not confirmed and don't travel. "
 					+ "To see which berths are still vacant, open Chart & vacancy in the Railway app.";
+		case TRAIN_CANCELLED:
+			return "The railway has cancelled this train on your journey date. Your ticket is cancelled "
+					+ "and the full fare is refunded; you don't need to do anything.";
+		case RESCHEDULED:
+			return "The railway has changed this train's departure. Please plan to reach the station for the new time below.";
 		default:
 			return "Your ticket is booked. Keep this email: you'll need the PNR to check status or cancel.";
 		}
@@ -246,6 +279,12 @@ public class TicketMailer {
 	private static String plainText(Ticket t) {
 		StringBuilder sb = new StringBuilder();
 		sb.append(title(t.event())).append("\n\n").append(intro(t.event())).append("\n\n");
+		if (t.note() != null) {
+			sb.append(t.note()).append("\n\n");
+		}
+		if (t.refund() != null) {
+			sb.append("Refund: ").append(t.refund()).append("\n\n");
+		}
 		sb.append("PNR: ").append(t.pnr()).append("\nTrain: ").append(t.trainNumber()).append(' ').append(t.trainName())
 				.append("\nDate: ").append(t.journeyDate()).append("\nFrom: ").append(t.fromStation()).append(' ')
 				.append(t.departs()).append("\nTo: ").append(t.toStation()).append(' ').append(t.arrives())
@@ -262,6 +301,28 @@ public class TicketMailer {
 
 	static String seatLabel(Passenger p) {
 		return "CNF " + p.getCoachNumber() + "/" + p.getSeatNumber() + "/" + berth(p.getBerthType());
+	}
+
+	static String noBerthLabel(Passenger p) {
+		return p.getAge() < TravelRules.INFANT_UNDER ? "Infant, no berth (free)" : "Child, no berth";
+	}
+
+	/** "Veg meal, bedroll" or "" */
+	static String extrasLabel(Passenger p) {
+		List<String> parts = new ArrayList<>();
+		TravelRules.Meal meal;
+		try {
+			meal = TravelRules.Meal.parse(p.getMeal());
+		} catch (IllegalArgumentException e) {
+			meal = TravelRules.Meal.NONE;
+		}
+		if (meal != TravelRules.Meal.NONE) {
+			parts.add(meal.label + " meal");
+		}
+		if (Boolean.TRUE.equals(p.getBedroll())) {
+			parts.add("bedroll");
+		}
+		return String.join(", ", parts);
 	}
 
 	static String waitLabel(Quota q, int number) {

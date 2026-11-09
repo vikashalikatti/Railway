@@ -63,4 +63,22 @@ public interface Passenger_Repository extends JpaRepository<Passenger, Long> {
 	@Query("select p from Passenger p join p.booking b where b.trainNumber = :train and b.journeyDate = :date"
 			+ " and p.status = 'WL' order by p.id")
 	List<Passenger> findAllWaitingForUpdate(@Param("train") int train, @Param("date") LocalDate date);
+
+	/**
+	 * People booked in a class on an overlapping stretch, with what matters for seating near them:
+	 * rows [coach_number, seat_number, gender, age, needs_assistance, helper, companion_id]
+	 */
+	@Query(value = "SELECT c.coach_number, cs.seat_number, p.gender, p.age, p.needs_assistance, p.helper, p.companion_id"
+			+ " FROM seat_occupancy o JOIN coach_seat cs ON cs.id = o.seat_id JOIN coach c ON c.id = cs.coach_id"
+			+ " JOIN passenger p ON p.id = o.passenger_id WHERE o.train_number = :train AND o.journey_date = :date"
+			+ " AND c.coach_type = :type AND o.from_stop < :toStop AND o.to_stop > :fromStop", nativeQuery = true)
+	List<Object[]> findNeighbours(@Param("train") int train, @Param("date") LocalDate date, @Param("type") String type,
+			@Param("fromStop") int fromStop, @Param("toStop") int toStop);
+
+	/** Confirmed seniors who asked for help and volunteer helpers on a train run, not yet matched; locked */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select p from Passenger p join fetch p.booking b where b.trainNumber = :train and b.journeyDate = :date"
+			+ " and p.status = 'CNF' and p.companionId is null and (p.needsAssistance = true or p.helper = true)"
+			+ " order by p.id")
+	List<Passenger> findUnmatchedCompanionsForUpdate(@Param("train") int train, @Param("date") LocalDate date);
 }

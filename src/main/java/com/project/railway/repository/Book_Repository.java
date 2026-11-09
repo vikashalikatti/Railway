@@ -17,6 +17,9 @@ public interface Book_Repository extends JpaRepository<Booking, Long> {
 	/** Any ticket for today or later that isn't cancelled */
 	boolean existsByTrainNumberAndJourneyDateGreaterThanEqualAndStatusNot(int trainNumber, LocalDate from, String status);
 
+	/** Bookings with journey dates in a range (reports) */
+	List<Booking> findByJourneyDateBetween(LocalDate from, LocalDate to);
+
 	/** Every booking on one train run (for chart emails) */
 	List<Booking> findByTrainNumberAndJourneyDate(int trainNumber, LocalDate journeyDate);
 

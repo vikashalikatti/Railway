@@ -1,5 +1,56 @@
 # Changelog — Railway backend
 
+## v1.10.0 — 9 Nov 2026
+Safer seating, boarding help, and importing trains in bulk. Use with frontend v1.15.0. New columns
+on passenger (needs_assistance, helper, companion_id, companion_note, near_women) and an index on
+station.station_code are added by Hibernate.
+- Solo women: a woman (12+) who is the only passenger with a berth on her ticket is seated, when
+  possible, in a bay where other women (18+) are booked for an overlapping stretch. It works inside
+  the seat allocation (SeatPicker "near" bonus); nobody is ever shown where women sit. Her ticket
+  says "Seated in a bay with other women" when it worked.
+- Boarding help: a senior (60+) travelling alone can tick "Needs boarding help"; adults (18-59)
+  can volunteer as helpers. Helpers and seniors are seated near each other, and each senior is
+  matched with one helper in the same coach who is on the train when the senior boards (at
+  booking, when someone cancels, and again at the first chart). Both tickets and emails show the
+  match (first name, coach and berth). The admin chart has a "Boarding help" column.
+- Bulk import (admin): GET/POST /admin/import/bundled imports the bundled Indian Railways list
+  (2,215 trains with reserved classes, 3,964 stations; DataMeet open data, CC0, collected 2016,
+  so timings may be out of date and every train runs daily). POST /admin/import/upload takes a CSV
+  or JSON file (up to 20 MB). Options: coaches per class, base fare, only trains stopping at some
+  stations, at most N trains. GET /admin/import/status shows progress. Trains already in the
+  database are skipped, never changed; new station codes are added to the directory. Runs in the
+  background; SQL logging is paused while it runs.
+- GET /admin/trains?q=&limit= searches on the server (number, name, first or last station) and
+  returns at most 200 trains; GET /admin/trains/{no} returns one train.
+- Thousands of trains: searches, connections, the chart scheduler and reports no longer load every
+  train with every stop. They query only the trains that can match.
+
+## v1.9.0 — 9 Nov 2026
+Passenger and admin features. Use with frontend v1.14.0. New tables saved_passenger and train_run,
+and new columns on passenger (no_berth, meal, bedroll, extras_fare) and booking (refund_amount),
+are added by Hibernate.
+- GET /customer/pnr-status/{pnr} (public): train, journey and each passenger's booking and current
+  status, numbered 1, 2, 3. No names or ages.
+- Saved passengers: GET/POST /customer/saved_passengers, DELETE /customer/saved_passengers/{id}
+  (up to 20 per customer; saving the same name again updates it).
+- Children: under 5 travel free without a berth (status NB, at most 2 per ticket, don't count
+  toward the passenger limit). Ages 5–11 may choose "no berth" for half fare. A ticket needs at
+  least one passenger with a berth; if all berth holders are cancelled, the no-berth ones are too.
+- Meals (Veg ₹120, Non-veg ₹150, Jain ₹120) and bedroll (₹150 in Sleeper; included in AC berth
+  classes) per passenger; stored, charged and shown on the ticket and emails.
+- GET /customer/connections?from&to&date: journeys with one change on the same day, 30 min to 8 h
+  wait, earliest arrival first (up to 10).
+- POST /admin/runs/{train}/cancel {date, reason}: cancels every passenger on that date, frees the
+  berths, records a full refund (fare + extras) on each booking and emails everyone. Bookings for a
+  cancelled run are refused.
+- POST /admin/runs/{train}/reschedule {date, delayMinutes, reason}: emails each passenger the new
+  departure time from their boarding station.
+- POST /admin/runs/{train}/position {date, stop, departed, delayMinutes} and
+  GET /customer/running/{train}?date (public): live running status shown on tickets.
+- GET /admin/reports?from&to (up to 92 days): totals, occupancy and revenue per train and class,
+  and a day-by-day table of bookings, cancellations and waitlist results.
+- Refunds are recorded only; no payment gateway yet.
+
 ## v1.8.0 — 9 Nov 2026
 Coaches by date (rush days). Use with frontend v1.13.0.
 - Coaches have optional "runs from" / "runs until" dates (coach.valid_from, coach.valid_to, added

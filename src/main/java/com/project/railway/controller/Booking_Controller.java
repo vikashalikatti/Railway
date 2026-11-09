@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,6 +16,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.project.railway.dto.Availability;
 import com.project.railway.dto.ChartView;
+import com.project.railway.dto.SavedPassenger;
+import com.project.railway.dto.TravelViews;
 import com.project.railway.dto.Booking;
 import com.project.railway.dto.PassengerRequest;
 import com.project.railway.helper.ResponseStructure;
@@ -25,6 +28,10 @@ import com.project.railway.service.StationDirectory;
 @RestController
 @RequestMapping("customer")
 public class Booking_Controller {
+
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.project.railway.service.RunService runService;
+
 
 	@org.springframework.beans.factory.annotation.Autowired
 	private com.project.railway.service.ChartService chartService;
@@ -76,6 +83,45 @@ public class Booking_Controller {
 	@GetMapping("/chart/{train_no}")
 	public ResponseEntity<ResponseStructure<ChartView>> chart(@PathVariable int train_no, @RequestParam String date) {
 		return chartService.publicChart(train_no, date);
+	}
+
+	/** PNR status without logging in: no names, just each passenger's booking and current status */
+	@GetMapping("/pnr-status/{pnr}")
+	public ResponseEntity<ResponseStructure<TravelViews.PnrView>> publicPnr(@PathVariable long pnr) {
+		return bookingService.publicPnr(pnr);
+	}
+
+	/** Running status of a train on a date (yyyy-MM-dd): cancelled, delay, where it is. Public. */
+	@GetMapping("/running/{train_no}")
+	public ResponseEntity<ResponseStructure<TravelViews.Running>> running(@PathVariable int train_no,
+			@RequestParam String date) {
+		return runService.running(train_no, date);
+	}
+
+	/** Two trains with one change, when no train runs all the way */
+	@GetMapping("/connections")
+	public ResponseEntity<ResponseStructure<List<TravelViews.Connection>>> connections(@RequestHeader("Bearer") String token,
+			@RequestParam String from, @RequestParam String to, @RequestParam String date) {
+		return bookingService.connections(token, from, to, date);
+	}
+
+	/** The passenger's saved travellers (master list) */
+	@GetMapping("/saved_passengers")
+	public ResponseEntity<ResponseStructure<List<SavedPassenger>>> savedPassengers(@RequestHeader("Bearer") String token) {
+		return bookingService.savedPassengers(token);
+	}
+
+	/** Saves (or updates, by name) a traveller. Body: {"name","age","gender","berthPreference","meal"} */
+	@PostMapping("/saved_passengers")
+	public ResponseEntity<ResponseStructure<List<SavedPassenger>>> savePassenger(@RequestHeader("Bearer") String token,
+			@RequestBody PassengerRequest passenger) {
+		return bookingService.savePassenger(token, passenger);
+	}
+
+	@DeleteMapping("/saved_passengers/{id}")
+	public ResponseEntity<ResponseStructure<List<SavedPassenger>>> deleteSavedPassenger(
+			@RequestHeader("Bearer") String token, @PathVariable long id) {
+		return bookingService.deleteSavedPassenger(token, id);
 	}
 
 	@GetMapping("/pnr/{pnr}")

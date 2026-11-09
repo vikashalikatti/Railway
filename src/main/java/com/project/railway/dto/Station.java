@@ -17,6 +17,7 @@ import jakarta.persistence.ManyToOne;
 import lombok.Data;
 
 @Entity
+@jakarta.persistence.Table(name = "station", indexes = @jakarta.persistence.Index(name = "idx_station_code", columnList = "station_code"))
 @Data
 @Component
 @JsonIdentityInfo(generator = ObjectIdGenerators.PropertyGenerator.class, property = "stationId")

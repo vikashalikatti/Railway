@@ -15,8 +15,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import com.project.railway.dto.ChartRun;
-import com.project.railway.dto.Station;
-import com.project.railway.dto.Train;
 import com.project.railway.helper.TatkalRules;
 import com.project.railway.repository.ChartRun_Repository;
 import com.project.railway.repository.Train_Repository;
@@ -48,16 +46,20 @@ public class ChartScheduler {
 	public void prepareDueCharts() {
 		LocalDateTime now = LocalDateTime.now(IST);
 		LocalDate today = now.toLocalDate();
-		for (Train train : trainRepository.findAll()) {
-			List<Station> stops = train.getStations();
-			if (stops == null || stops.isEmpty() || train.getSchedule() == null
-					|| train.getSchedule().getRunningWeeks() == null) {
+		java.util.Map<String, Integer> stages = new java.util.HashMap<>();
+		for (ChartRun r : chartRepository.findByJourneyDateBetween(today.minusDays(1), today.plusDays(1))) {
+			stages.put(r.getTrainNumber() + "|" + r.getJourneyDate(), r.getStage());
+		}
+		// one light query: each train's first departure and running days (not every stop of every train)
+		for (Object[] row : trainRepository.findStartTimes()) {
+			int trainNumber = ((Number) row[0]).intValue();
+			String[] days = (String[]) row[2];
+			if (days == null) {
 				continue;
 			}
-			LocalTime start = stops.get(0).getDepartureTime() != null ? stops.get(0).getDepartureTime()
-					: LocalTime.MIDNIGHT;
+			LocalTime start = row[1] != null ? (LocalTime) row[1] : LocalTime.MIDNIGHT;
 			for (LocalDate date : List.of(today.minusDays(1), today, today.plusDays(1))) {
-				if (!runsOn(train, date)) {
+				if (!runsOn(days, date)) {
 					continue;
 				}
 				LocalDateTime departure = date.atTime(start);
@@ -65,27 +67,29 @@ public class ChartScheduler {
 					continue;
 				}
 				try {
-					ChartRun run = chartRepository.findByTrainNumberAndJourneyDate(train.getTrainNumber(), date);
-					int stage = run == null ? ChartRun.NOT_PREPARED : run.getStage();
-					if (stage < ChartRun.FIRST && engine.prepareFirstChart(train.getTrainNumber(), date)) {
-						log.info("First chart prepared for train {} on {}", train.getTrainNumber(), date);
+					int stage = stages.getOrDefault(trainNumber + "|" + date, ChartRun.NOT_PREPARED);
+					if (stage >= ChartRun.FINAL) {
+						continue;
+					}
+					if (stage < ChartRun.FIRST && engine.prepareFirstChart(trainNumber, date)) {
+						log.info("First chart prepared for train {} on {}", trainNumber, date);
 						stage = ChartRun.FIRST;
 					}
 					if (stage < ChartRun.FINAL && !now.isBefore(TatkalRules.finalChartAt(departure))
-							&& engine.prepareFinalChart(train.getTrainNumber(), date)) {
-						log.info("Final chart prepared for train {} on {}", train.getTrainNumber(), date);
+							&& engine.prepareFinalChart(trainNumber, date)) {
+						log.info("Final chart prepared for train {} on {}", trainNumber, date);
 					}
 				} catch (RuntimeException e) {
 					// try again next minute; one train's problem never stops the others' charts
-					log.warn("Chart for train {} on {} failed, will retry: {}", train.getTrainNumber(), date,
+					log.warn("Chart for train {} on {} failed, will retry: {}", trainNumber, date,
 							e.toString());
 				}
 			}
 		}
 	}
 
-	private static boolean runsOn(Train train, LocalDate date) {
+	private static boolean runsOn(String[] days, LocalDate date) {
 		String day = date.getDayOfWeek().name();
-		return Arrays.stream(train.getSchedule().getRunningWeeks()).anyMatch(d -> d != null && d.trim().equalsIgnoreCase(day));
+		return Arrays.stream(days).anyMatch(d -> d != null && d.trim().equalsIgnoreCase(day));
 	}
 }

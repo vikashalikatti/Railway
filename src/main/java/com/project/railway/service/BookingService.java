@@ -32,14 +32,19 @@ import com.project.railway.dto.Passenger;
 import com.project.railway.dto.PassengerRequest;
 import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
+import com.project.railway.dto.TrainRun;
+import com.project.railway.dto.TravelViews;
+import com.project.railway.dto.SavedPassenger;
 import com.project.railway.helper.BookingException;
 import com.project.railway.helper.CoachLayout;
+import com.project.railway.helper.CompanionRules;
 import com.project.railway.helper.FareCalculator;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.Quota;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Seat_type;
 import com.project.railway.helper.TatkalRules;
+import com.project.railway.helper.TravelRules;
 import com.project.railway.repository.Book_Repository;
 import com.project.railway.repository.ChartRun_Repository;
 import com.project.railway.repository.CoachSeat_Repository;
@@ -81,6 +86,10 @@ public class BookingService {
 	private StationDirectory stationDirectory;
 	@Autowired
 	private ChartRun_Repository chartRepository;
+	@Autowired
+	private com.project.railway.repository.TrainRun_Repository trainRunRepository;
+	@Autowired
+	private com.project.railway.repository.SavedPassenger_Repository savedRepository;
 
 	/** A train that serves the search, with the positions of the passenger's boarding and destination stops */
 	public record TrainMatch(Train train, int fromStop, int toStop, String fromStation, String toStation) {
@@ -133,7 +142,8 @@ public class BookingService {
 				throw new BookingException(HttpStatus.CONFLICT, plan.closedReason());
 			}
 			checkPassengers(passengers, plan.seatType());
-			String notEligible = plan.quota().eligibility(passengers.stream()
+			// infants travel on a lap and don't count towards a quota's rules or limits
+			String notEligible = plan.quota().eligibility(passengers.stream().filter(p -> !TravelRules.isInfant(p.getAge()))
 					.map(p -> new Quota.Traveller(p.getAge(), p.getGender())).toList());
 			if (notEligible != null) {
 				throw new BookingException(HttpStatus.BAD_REQUEST, notEligible);
@@ -188,6 +198,216 @@ public class BookingService {
 		}
 	}
 
+	/* ------------------------------------------------------------ public PNR status */
+
+	/** PNR status without logging in: train, date, class and each passenger's status, but no names */
+	@Transactional(readOnly = true)
+	public ResponseEntity<ResponseStructure<TravelViews.PnrView>> publicPnr(long pnr) {
+		Booking b = bookingRepository.findById(pnr).orElse(null);
+		if (b == null) {
+			return error(new BookingException(HttpStatus.NOT_FOUND, "No booking with PNR " + pnr + "."));
+		}
+		fillWaitlistPositions(b);
+		Quota quota = Quota.parse(b.getQuota());
+		List<TravelViews.PnrPassenger> rows = new java.util.ArrayList<>();
+		int n = 1;
+		for (Passenger p : b.getPassengers()) {
+			String booked = Boolean.TRUE.equals(p.getNoBerth()) ? TicketMailer.noBerthLabel(p)
+					: p.getWlNumber() != null ? TicketMailer.waitLabel(quota, p.getWlNumber()) : TicketMailer.seatLabel(p);
+			String now;
+			if (Passenger.NO_BERTH.equals(p.getStatus())) {
+				now = TicketMailer.noBerthLabel(p);
+			} else if (Passenger.CONFIRMED.equals(p.getStatus())) {
+				now = TicketMailer.seatLabel(p);
+			} else if (Passenger.WAITLISTED.equals(p.getStatus())) {
+				now = TicketMailer.waitLabel(quota, p.getCurrentWlPosition() != null ? p.getCurrentWlPosition() : p.getWlNumber());
+			} else if (Passenger.CANCELLED_TRAIN.equals(p.getCancelReason())) {
+				now = "Train cancelled";
+			} else if (Passenger.CANCELLED_AT_CHART.equals(p.getCancelReason())) {
+				now = "Not confirmed at charting";
+			} else {
+				now = "Cancelled";
+			}
+			rows.add(new TravelViews.PnrPassenger(n++, booked, now));
+		}
+		return ok(new TravelViews.PnrView(b.getBookingId(), b.getTrainNumber(), b.getTrainName(), b.getFromStation(),
+				b.getToStation(), b.getJourneyDate().toString(), b.getSeatType(), quota.name(), b.getChartStatus(),
+				b.getStatus(), b.getRefundAmount(), rows), "PNR status");
+	}
+
+	/* ------------------------------------------------------------ saved passengers */
+
+	public static final int MAX_SAVED_PASSENGERS = 20;
+
+	@Transactional(readOnly = true)
+	public ResponseEntity<ResponseStructure<List<SavedPassenger>>> savedPassengers(String token) {
+		try {
+			Customer customer = customerFrom(token);
+			return ok(savedRepository.findByCustomerOrderByNameAsc(customer), "Saved passengers");
+		} catch (BookingException e) {
+			return error(e);
+		}
+	}
+
+	@Transactional
+	public ResponseEntity<ResponseStructure<List<SavedPassenger>>> savePassenger(String token, PassengerRequest in) {
+		try {
+			Customer customer = customerFrom(token);
+			if (in == null) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, "Enter the passenger's details.");
+			}
+			String name = in.getName() == null ? "" : in.getName().trim().replaceAll("\\s+", " ");
+			if (!name.matches("[A-Za-z][A-Za-z .'-]{1,49}")) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, "Enter a name of 2 to 50 letters.");
+			}
+			if (in.getAge() < 0 || in.getAge() > 120) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, "Enter an age between 0 and 120.");
+			}
+			String gender = in.getGender() == null ? "" : in.getGender().trim().toUpperCase(Locale.ROOT);
+			if (!GENDERS.contains(gender)) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, "Choose Male, Female or Other.");
+			}
+			TravelRules.Meal meal;
+			try {
+				meal = TravelRules.Meal.parse(in.getMeal());
+			} catch (IllegalArgumentException e) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, "Choose No meal, Veg, Non-veg or Jain.");
+			}
+			List<SavedPassenger> mine = savedRepository.findByCustomerOrderByNameAsc(customer);
+			SavedPassenger same = mine.stream().filter(x -> x.getName().equalsIgnoreCase(name)).findFirst().orElse(null);
+			if (same == null && mine.size() >= MAX_SAVED_PASSENGERS) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, "You can save up to " + MAX_SAVED_PASSENGERS + " passengers.");
+			}
+			SavedPassenger sp = same != null ? same : new SavedPassenger();
+			sp.setCustomer(customer);
+			sp.setName(name);
+			sp.setAge(in.getAge());
+			sp.setGender(gender.charAt(0) + gender.substring(1).toLowerCase(Locale.ROOT));
+			String pref = in.getBerthPreference() == null ? "" : in.getBerthPreference().trim().toUpperCase(Locale.ROOT);
+			sp.setBerthPreference(pref.isEmpty() || pref.length() > 20 ? null : pref);
+			sp.setMeal(meal.name());
+			savedRepository.save(sp);
+			return ok(savedRepository.findByCustomerOrderByNameAsc(customer), same != null ? name + " updated" : name + " saved");
+		} catch (BookingException e) {
+			return error(e);
+		}
+	}
+
+	@Transactional
+	public ResponseEntity<ResponseStructure<List<SavedPassenger>>> deleteSavedPassenger(String token, long id) {
+		try {
+			Customer customer = customerFrom(token);
+			SavedPassenger sp = savedRepository.findById(id).orElse(null);
+			if (sp == null || sp.getCustomer().getId() != customer.getId()) {
+				throw new BookingException(HttpStatus.NOT_FOUND, "That saved passenger doesn't exist.");
+			}
+			savedRepository.delete(sp);
+			return ok(savedRepository.findByCustomerOrderByNameAsc(customer), sp.getName() + " removed");
+		} catch (BookingException e) {
+			return error(e);
+		}
+	}
+
+	/* ------------------------------------------------------------ connecting trains */
+
+	/** Shortest and longest wait between the two trains at the change station */
+	public static final int MIN_CHANGE_MINUTES = 30;
+	public static final int MAX_CHANGE_MINUTES = 8 * 60;
+
+	private static String placeKey(Station s) {
+		return s.getStationCode() != null && !s.getStationCode().isBlank() ? s.getStationCode().toUpperCase(Locale.ROOT)
+				: (s.getStationName() == null ? "" : s.getStationName().trim().toLowerCase(Locale.ROOT));
+	}
+
+	/** Numbers of the trains with a stop at this place (so a search loads only those trains) */
+	private Set<Integer> numbersStoppingAt(StationDirectory.Place place) {
+		Set<String> codes = place.codes().isEmpty() ? Set.of("-") : place.codes();
+		Set<String> names = place.names().isEmpty() ? Set.of("-") : place.names();
+		return new java.util.HashSet<>(trainRepository.findNumbersStoppingAt(codes, names));
+	}
+
+	private static boolean runsOn(Train t, LocalDate date) {
+		String day = date.getDayOfWeek().name();
+		return t.getSchedule() != null && t.getSchedule().getRunningWeeks() != null && Arrays
+				.stream(t.getSchedule().getRunningWeeks()).anyMatch(d -> d != null && d.trim().equalsIgnoreCase(day));
+	}
+
+	/**
+	 * Two trains with one change, for when no train runs all the way: the first train's stop and the
+	 * second train's stop are the same station, and the second leaves 30 minutes to 8 hours after
+	 * the first arrives (same day). Best (earliest arrival) first, at most 10.
+	 */
+	@Transactional(readOnly = true)
+	public ResponseEntity<ResponseStructure<List<TravelViews.Connection>>> connections(String token, String from, String to,
+			String dateText) {
+		try {
+			customerFrom(token);
+			LocalDate date = parseDate(dateText);
+			StationDirectory.Place origin = stationDirectory.resolve(from);
+			StationDirectory.Place destination = stationDirectory.resolve(to);
+			LocalDate today = LocalDate.now(IST);
+			Set<Integer> candidates = numbersStoppingAt(origin);
+			candidates.addAll(numbersStoppingAt(destination));
+			List<Train> running = trainRepository.findAllById(candidates).stream()
+					.filter(t -> runsOn(t, date) && t.getStations() != null && t.getStations().size() > 1)
+					.filter(t -> { TrainRun r = trainRunRepository.findByTrainNumberAndJourneyDate(t.getTrainNumber(), date); return r == null || !r.isCancelled(); })
+					.toList();
+
+			record Option(TravelViews.Connection c, LocalTime arrives) {
+			}
+			List<Option> options = new java.util.ArrayList<>();
+			for (Train a : running) {
+				List<Station> as = a.getStations();
+				for (int i = 0; i < as.size(); i++) {
+					if (!origin.matches(as.get(i))) {
+						continue;
+					}
+					LocalTime leaves = as.get(i).getDepartureTime();
+					if (date.equals(today) && leaves != null && !leaves.isAfter(LocalTime.now(IST))) {
+						continue;
+					}
+					for (int j = i + 1; j < as.size(); j++) {
+						Station change = as.get(j);
+						if (destination.matches(change) || change.getArrivalTime() == null) {
+							continue; // that's a direct train, not a change
+						}
+						for (Train b : running) {
+							if (b.getTrainNumber() == a.getTrainNumber()) {
+								continue;
+							}
+							List<Station> bs = b.getStations();
+							for (int k = 0; k < bs.size() - 1; k++) {
+								if (!placeKey(bs.get(k)).equals(placeKey(change)) || bs.get(k).getDepartureTime() == null) {
+									continue;
+								}
+								long wait = java.time.Duration.between(change.getArrivalTime(), bs.get(k).getDepartureTime()).toMinutes();
+								if (wait < MIN_CHANGE_MINUTES || wait > MAX_CHANGE_MINUTES) {
+									continue;
+								}
+								for (int m = k + 1; m < bs.size(); m++) {
+									if (destination.matches(bs.get(m))) {
+										TrainMatch first = new TrainMatch(a, i, j, as.get(i).getStationName(), change.getStationName());
+										TrainMatch second = new TrainMatch(b, k, m, bs.get(k).getStationName(), bs.get(m).getStationName());
+										options.add(new Option(new TravelViews.Connection(first, second, change.getStationName(), wait),
+												bs.get(m).getArrivalTime() == null ? LocalTime.MAX : bs.get(m).getArrivalTime()));
+										break;
+									}
+								}
+							}
+						}
+					}
+					break; // first matching boarding stop of this train
+				}
+			}
+			options.sort(java.util.Comparator.comparing(Option::arrives)
+					.thenComparingLong(o -> o.c().layoverMinutes()));
+			List<TravelViews.Connection> out = options.stream().map(Option::c).limit(10).toList();
+			return ok(out, out.size() + " connecting journeys");
+		} catch (BookingException e) {
+			return error(e);
+		}
+	}
+
 	/** Live station search for the From / To boxes. Public: no log-in needed. */
 	public ResponseEntity<ResponseStructure<List<StationDirectory.Suggestion>>> stations(String q) {
 		List<StationDirectory.Suggestion> list = stationDirectory.suggest(q);
@@ -223,7 +443,11 @@ public class BookingService {
 
 			String day = date.getDayOfWeek().name();
 			List<TrainMatch> matches = new java.util.ArrayList<>();
-			for (Train train : trainRepository.findAll()) {
+			Set<Integer> candidates = numbersStoppingAt(origin);
+			candidates.retainAll(numbersStoppingAt(destination));
+			List<Train> found = new java.util.ArrayList<>(trainRepository.findAllById(candidates));
+			found.sort(java.util.Comparator.comparingInt(Train::getTrainNumber));
+			for (Train train : found) {
 				if (train.getSchedule() == null || train.getSchedule().getRunningWeeks() == null || Arrays
 						.stream(train.getSchedule().getRunningWeeks()).noneMatch(d -> d != null && d.trim().equalsIgnoreCase(day))) {
 					continue;
@@ -353,6 +577,12 @@ public class BookingService {
 		for (int i = fromStop + 1; i <= toStop; i++) {
 			distance += stops.get(i).getKm();
 		}
+		TrainRun runStatus = trainRunRepository.findByTrainNumberAndJourneyDate(trainNo, date);
+		if (runStatus != null && runStatus.isCancelled()) {
+			throw new BookingException(HttpStatus.CONFLICT, "Train " + trainNo + " is cancelled on this date"
+					+ (runStatus.getCancelReason() != null ? ": " + runStatus.getCancelReason() : "") + ".");
+		}
+
 		Quota quota;
 		try {
 			quota = Quota.parse(quotaText);
@@ -425,9 +655,51 @@ public class BookingService {
 		if (passengers == null || passengers.isEmpty()) {
 			throw new BookingException(HttpStatus.BAD_REQUEST, "Add at least one passenger.");
 		}
-		if (passengers.size() > MAX_PASSENGERS) {
+		long infants = passengers.stream().filter(p -> TravelRules.isInfant(p.getAge())).count();
+		if (passengers.size() - infants > MAX_PASSENGERS) {
 			throw new BookingException(HttpStatus.BAD_REQUEST,
-					"You can book up to " + MAX_PASSENGERS + " passengers at a time.");
+					"You can book up to " + MAX_PASSENGERS + " passengers at a time, plus " + TravelRules.MAX_INFANTS
+							+ " children under 5.");
+		}
+		if (infants > TravelRules.MAX_INFANTS) {
+			throw new BookingException(HttpStatus.BAD_REQUEST,
+					"Up to " + TravelRules.MAX_INFANTS + " children under 5 can travel on one booking.");
+		}
+		boolean someoneWithBerth = passengers.stream()
+				.anyMatch(p -> !TravelRules.travelsWithoutBerth(p.getAge(), p.isNoBerth()));
+		if (!someoneWithBerth) {
+			throw new BookingException(HttpStatus.BAD_REQUEST,
+					"At least one passenger needs a berth: children without a berth travel with someone who has one.");
+		}
+		int withBerth = (int) passengers.stream()
+				.filter(p -> !TravelRules.travelsWithoutBerth(p.getAge(), p.isNoBerth())).count();
+		boolean asksForHelp = passengers.stream().anyMatch(PassengerRequest::isNeedsAssistance);
+		for (int i = 0; i < passengers.size(); i++) {
+			PassengerRequest p = passengers.get(i);
+			if (p.isNeedsAssistance() && !CompanionRules.canAskForAssistance(p.getAge(), withBerth)) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, "Passenger " + (i + 1)
+						+ ": boarding help is for passengers aged 60 or over travelling alone.");
+			}
+			if (p.isHelper() && !CompanionRules.canHelp(p.getAge())) {
+				throw new BookingException(HttpStatus.BAD_REQUEST,
+						"Passenger " + (i + 1) + ": helpers must be 18 to 59 years old.");
+			}
+			if (p.isHelper() && asksForHelp) {
+				throw new BookingException(HttpStatus.BAD_REQUEST,
+						"Passenger " + (i + 1) + " can't volunteer as a helper on a ticket that asks for help.");
+			}
+			if (p.isNoBerth() && p.getAge() >= TravelRules.CHILD_UNDER) {
+				throw new BookingException(HttpStatus.BAD_REQUEST,
+						"Passenger " + (i + 1) + ": only children aged 5 to 11 can choose no berth.");
+			}
+			try {
+				TravelRules.Meal.parse(p.getMeal());
+			} catch (IllegalArgumentException e) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, "Passenger " + (i + 1) + ": choose No meal, Veg, Non-veg or Jain.");
+			}
+			if (p.isBedroll() && !TravelRules.bedrollOffered(type)) {
+				p.setBedroll(false); // AC classes already include one; sitting classes have none
+			}
 		}
 		List<String> allowed = CoachLayout.preferences(type);
 		Set<String> names = new HashSet<>();
@@ -442,8 +714,8 @@ public class BookingService {
 				throw new BookingException(HttpStatus.BAD_REQUEST, who + name + " is already on this booking.");
 			}
 			p.setName(name);
-			if (p.getAge() < 1 || p.getAge() > 120) {
-				throw new BookingException(HttpStatus.BAD_REQUEST, who + "enter an age between 1 and 120.");
+			if (p.getAge() < 0 || p.getAge() > 120) {
+				throw new BookingException(HttpStatus.BAD_REQUEST, who + "enter an age between 0 and 120.");
 			}
 			String gender = p.getGender() == null ? "" : p.getGender().trim().toUpperCase(Locale.ROOT);
 			if (!GENDERS.contains(gender)) {

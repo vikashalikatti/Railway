@@ -17,6 +17,9 @@ import java.util.Map;
  *   -6   passenger is 60+ and the seat is an upper berth
  *   +6   same coach as the group's first seat
  *   +4   same bay as the group's first seat, -1 per bay further away
+ *   +12  the seat's bay has what the passenger is looking for (see Near):
+ *        a solo woman -> a bay with other women; a senior who asked for help -> a bay with a
+ *        volunteer helper; a volunteer helper -> a bay with a senior who asked for help
  *
  * Plain Java (no Spring, no database) so it can be unit-tested.
  */
@@ -27,12 +30,32 @@ public final class SeatPicker {
 
 	public static final int SENIOR_AGE = 60;
 
-	/** A free seat the booking transaction has already locked */
-	public record Seat(long id, String coachNumber, int seatNumber, String berthType, int bay) {
+	/** Who is already in a bay (bit flags), and what a traveller looks for */
+	public static final class Near {
+		private Near() {
+		}
+
+		public static final int WOMEN = 1;
+		public static final int HELPER = 2;
+		public static final int SENIOR_NEEDING_HELP = 4;
 	}
 
-	/** One passenger: index in the request, age and berth preference (may be null) */
-	public record Traveller(int index, int age, String preference) {
+	/** Bonus for a seat in a bay that has what the passenger looks for */
+	static final int NEAR_BONUS = 12;
+
+	/** A free seat the booking transaction has already locked. near: Near flags of its bay. */
+	public record Seat(long id, String coachNumber, int seatNumber, String berthType, int bay, int near) {
+		public Seat(long id, String coachNumber, int seatNumber, String berthType, int bay) {
+			this(id, coachNumber, seatNumber, berthType, bay, 0);
+		}
+	}
+
+	/** One passenger: index in the request, age, berth preference (may be null), Near flags wanted */
+	public record Traveller(int index, int age, String preference, int seeks) {
+		public Traveller(int index, int age, String preference) {
+			this(index, age, preference, 0);
+		}
+
 		boolean isSenior() {
 			return age >= SENIOR_AGE;
 		}
@@ -54,9 +77,9 @@ public final class SeatPicker {
 			return result;
 		}
 
-		// Seniors choose first, then people with a preference, then everyone else
+		// People looking for company choose first, then seniors, then people with a preference, then everyone else
 		List<Traveller> order = new ArrayList<>(travellers);
-		order.sort(Comparator.comparingInt((Traveller t) -> t.isSenior() ? 0 : t.hasPreference() ? 1 : 2)
+		order.sort(Comparator.comparingInt((Traveller t) -> t.seeks() != 0 ? 0 : t.isSenior() ? 1 : t.hasPreference() ? 2 : 3)
 				.thenComparingInt(Traveller::index));
 
 		List<Seat> remaining = new ArrayList<>(seats);
@@ -94,6 +117,9 @@ public final class SeatPicker {
 
 	static int score(Traveller t, Seat s, Seat anchor) {
 		int score = 0;
+		if ((t.seeks() & s.near()) != 0) {
+			score += NEAR_BONUS;
+		}
 		if (t.hasPreference() && t.preference().equalsIgnoreCase(s.berthType())) {
 			score += 10;
 		}
@@ -110,6 +136,11 @@ public final class SeatPicker {
 			score += distance == 0 ? 4 : -distance;
 		}
 		return score;
+	}
+
+	/** Bay key used to match seats with the people around them */
+	public static String bayKey(String coachNumber, int bay) {
+		return coachNumber + "#" + bay;
 	}
 
 	/** Coach with the most free seats that fits the whole group; otherwise the emptiest one */
