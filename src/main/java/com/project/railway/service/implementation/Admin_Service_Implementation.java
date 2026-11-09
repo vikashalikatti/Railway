@@ -101,6 +101,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 	Train_Repository train_Repository;
 
 	@Autowired
+	private com.project.railway.service.AuditService audit;
+
+	@Autowired
 	Schedule_Repository schedule_Repository;
 
 	@Autowired
@@ -180,12 +183,14 @@ public class Admin_Service_Implementation implements Admin_Service {
 		boolean ok = admin != null && password != null && encoder.matches(password, admin.getPassword());
 		if (!ok) {
 			loginAttempts.failed(account);
+			audit.recordAs(name == null ? "unknown" : name.trim(), "ADMIN_LOGIN_FAILED", null, "Wrong name or password");
 			return reply(structure, HttpStatus.BAD_REQUEST, "Wrong admin name or password");
 		}
 		loginAttempts.succeeded(account);
 		String token = jwtUtil.generateToken_for_admin(admin, new Date(System.currentTimeMillis() + JwtUtil.LOGIN_TTL_MS));
 		structure.setData(token);
 		sendLoginAlert(admin);
+		audit.recordAs(admin.getName(), "ADMIN_LOGIN", null, null);
 		return reply(structure, HttpStatus.OK, "Login Success");
 	}
 
@@ -247,6 +252,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 				return new ResponseEntity<>(structure, HttpStatus.CONFLICT);
 			}
 			train_Repository.save(train);
+			audit.record(token, "TRAIN_ADDED", "Train " + train.getTrainNumber(), train.getTrainName());
 			structure.setData2(train);
 			structure.setMessage("Train added");
 			structure.setStatus(HttpStatus.OK.value());
@@ -304,6 +310,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 		train.setSchedule(saved);
 		train_Repository.save(train);
 		structure.setData2(saved);
+		audit.record(token, "RUNNING_DAYS_SAVED", "Train " + trainNo, String.join(", ", picked));
 		return reply(structure, HttpStatus.OK, updating ? "Running days updated" : "Schedule added successfully");
 	}
 
@@ -345,6 +352,9 @@ public class Admin_Service_Implementation implements Admin_Service {
 			if (stop.getArrivalTime() == null || stop.getDepartureTime() == null) {
 				return reply(structure, HttpStatus.BAD_REQUEST, "Enter the times for " + stop.getStationName());
 			}
+			if (stop.getDay() != null && (stop.getDay() < 0 || stop.getDay() > 7)) {
+				return reply(structure, HttpStatus.BAD_REQUEST, "Day for " + stop.getStationName() + " must be 1 to 7");
+			}
 			if (i > 0 && !(stop.getKm() > 0)) {
 				return reply(structure, HttpStatus.BAD_REQUEST, "Enter the km to " + stop.getStationName());
 			}
@@ -373,6 +383,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 			row.setStationCode(in.getStationCode());
 			row.setArrivalTime(in.getArrivalTime());
 			row.setDepartureTime(in.getDepartureTime());
+			row.setDay(in.getDay() != null && in.getDay() > 0 ? in.getDay() : null);
 			row.setKm(i == 0 ? 0 : in.getKm());
 			row.setTrains(train);
 			if (i >= current.size()) {
@@ -392,6 +403,8 @@ public class Admin_Service_Implementation implements Admin_Service {
 		}
 		train_Repository.save(train);
 		structure.setData2(train);
+		audit.record(token, "STOPS_SAVED", "Train " + trainNo, current.size() + " stops: " + current.get(0).getStationName()
+				+ " to " + current.get(current.size() - 1).getStationName());
 		return reply(structure, HttpStatus.OK, "Stops saved");
 	}
 
@@ -428,6 +441,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 		train.setRoute(route);
 		train_Repository.save(train);
 		structure.setData2(train);
+		audit.record(token, "FARE_SAVED", "Train " + trainNo, "Base fare ₹" + routes.getPrice());
 		return reply(structure, HttpStatus.OK, updating ? "Fare updated" : "Route with Prices Added to Every Station");
 	}
 
@@ -607,6 +621,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 		structure.setData2(train);
 		structure.setMessage(newCoaches.size() + " coaches with " + seats.size() + " seats added");
+		audit.record(token, "COACHES_REPLACED", "Train " + trainNo, newCoaches.size() + " coaches: " + counts);
 		structure.setStatus(HttpStatus.OK.value());
 		return new ResponseEntity<>(structure, HttpStatus.OK);
 	}
@@ -846,6 +861,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 		structure.setData2(train);
 		String when = to == null ? "from " + from : "from " + from + " to " + to;
+		audit.record(token, "COACHES_ADDED", "Train " + trainNo, count + " " + body.get("seatType") + " " + when);
 		return reply(structure, HttpStatus.OK, count + (count == 1 ? " coach" : " coaches") + " added " + when
 				+ (confirmed > 0 ? "; " + confirmed + " waitlisted passengers got seats" : ""));
 	}
@@ -923,6 +939,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 		}
 		train_Repository.save(train);
 		structure.setData2(train);
+		audit.record(token, "COACHES_REMOVED", "Train " + trainNo, String.join(", ", removed) + " from " + from);
 		return reply(structure, HttpStatus.OK, String.join(", ", removed) + " removed from " + from);
 	}
 
@@ -931,8 +948,11 @@ public class Admin_Service_Implementation implements Admin_Service {
 	/** The admin's shares for a class, or the defaults */
 	private QuotaPlanner.Shares sharesFor(int trainNo, Seat_type type) {
 		QuotaShare row = quotaShare_Repository.findByTrainNumberAndSeatType(trainNo, type.name());
-		return row == null ? QuotaPlanner.Shares.defaults(type)
-				: new QuotaPlanner.Shares(row.getTatkalPct(), row.getPremiumPct(), row.getLadiesPct(), row.getSeniorPct());
+		QuotaPlanner.Shares d = QuotaPlanner.Shares.defaults(type);
+		return row == null ? d
+				: new QuotaPlanner.Shares(row.getTatkalPct(), row.getPremiumPct(), row.getLadiesPct(), row.getSeniorPct(),
+						row.getRacBerths() != null ? row.getRacBerths() : d.racBerthsPerCoach(),
+						row.getDivyangPct() != null ? row.getDivyangPct() : d.divyang());
 	}
 
 	/** Marks each seat of a class with its quota. seats: every seat of that class, in coach-then-number order. */
@@ -971,7 +991,8 @@ public class Admin_Service_Implementation implements Admin_Service {
 				counts.put(q.name(), n);
 				total += n;
 			}
-			out.add(new QuotaView(typeName, sh.tatkal(), sh.premium(), sh.ladies(), sh.senior(), row != null, total,
+			out.add(new QuotaView(typeName, sh.tatkal(), sh.premium(), sh.ladies(), sh.senior(), sh.racBerthsPerCoach(),
+					sh.divyang(), row != null, total,
 					counts));
 		}
 		return out;
@@ -1027,8 +1048,10 @@ public class Admin_Service_Implementation implements Admin_Service {
 				return reply(structure, HttpStatus.BAD_REQUEST, "This train has no " + type.name() + " coaches");
 			}
 			Map<String, Integer> v = e.getValue() == null ? Map.of() : e.getValue();
+			QuotaPlanner.Shares d = QuotaPlanner.Shares.defaults(type);
 			QuotaPlanner.Shares sh = new QuotaPlanner.Shares(v.getOrDefault("tatkalPct", 0),
-					v.getOrDefault("premiumPct", 0), v.getOrDefault("ladiesPct", 0), v.getOrDefault("seniorPct", 0));
+					v.getOrDefault("premiumPct", 0), v.getOrDefault("ladiesPct", 0), v.getOrDefault("seniorPct", 0),
+					v.getOrDefault("racBerths", d.racBerthsPerCoach()), v.getOrDefault("divyangPct", d.divyang()));
 			String problem = sh.problem(type);
 			if (problem != null) {
 				return reply(structure, HttpStatus.BAD_REQUEST, CoachLayout.shortCode(type) + ": " + problem);
@@ -1043,10 +1066,13 @@ public class Admin_Service_Implementation implements Admin_Service {
 			row.setPremiumPct(sh.premium());
 			row.setLadiesPct(sh.ladies());
 			row.setSeniorPct(sh.senior());
+			row.setRacBerths(sh.racBerthsPerCoach());
+			row.setDivyangPct(sh.divyang());
 			quotaShare_Repository.save(row);
 			applyQuotas(trainNo, type, coachSeat_Repository.findSeatsInClass(trainNo, type.name()));
 		}
 		structure.setData2(quotaViews(train));
+		audit.record(token, "QUOTAS_SAVED", "Train " + trainNo, String.valueOf(body));
 		return reply(structure, HttpStatus.OK, "Quotas saved");
 	}
 
@@ -1121,6 +1147,7 @@ public class Admin_Service_Implementation implements Admin_Service {
 
 			try {
 				deleteTrainRows(train_No, train);
+				audit.record(token, "TRAIN_DELETED", "Train " + train_No, train.getTrainName());
 				structure.setStatus(HttpStatus.OK.value());
 				structure.setMessage("Train deleted successfully");
 				return new ResponseEntity<>(structure, HttpStatus.OK);

@@ -35,4 +35,12 @@ public class QuotaShare {
 	private int ladiesPct;
 	@Column(name = "senior_pct", nullable = false)
 	private int seniorPct;
+
+	/** RAC berths per coach; empty = the default for the class */
+	@Column(name = "rac_berths")
+	private Integer racBerths;
+
+	/** Divyangjan share in percent; empty = the default for the class */
+	@Column(name = "divyang_pct")
+	private Integer divyangPct;
 }

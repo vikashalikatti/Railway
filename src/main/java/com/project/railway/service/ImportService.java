@@ -96,6 +96,8 @@ public class ImportService {
 	private TransactionTemplate tx;
 	@Autowired
 	private JwtUtil jwtUtil;
+	@Autowired
+	private AuditService audit;
 	@Autowired(required = false)
 	private LoggingSystem loggingSystem;
 
@@ -178,7 +180,7 @@ public class ImportService {
 		} catch (IOException e) {
 			return reply(HttpStatus.INTERNAL_SERVER_ERROR, "The bundled train list is missing from this build.", status);
 		}
-		return start(batch, options);
+		return start(batch, options, adminName(token));
 	}
 
 	public ResponseEntity<ResponseStructure<Status>> startUpload(String token, MultipartFile file, Options options) {
@@ -202,7 +204,7 @@ public class ImportService {
 				status = s;
 				return reply(HttpStatus.BAD_REQUEST, s.message(), s);
 			}
-			return start(batch, options);
+			return start(batch, options, adminName(token));
 		} catch (IllegalArgumentException e) {
 			return reply(HttpStatus.BAD_REQUEST, e.getMessage(), status);
 		} catch (IOException e) {
@@ -212,7 +214,8 @@ public class ImportService {
 
 	/* ------------------------------------------------------------------ the import */
 
-	private synchronized ResponseEntity<ResponseStructure<Status>> start(TrainImport.Batch batch, Options options) {
+	private synchronized ResponseEntity<ResponseStructure<Status>> start(TrainImport.Batch batch, Options options,
+			String actor) {
 		if ("RUNNING".equals(status.state())) {
 			return reply(HttpStatus.CONFLICT, "An import is already running. Wait for it to finish.", status);
 		}
@@ -253,6 +256,8 @@ public class ImportService {
 		Status s = new Status("RUNNING", batch.source(), todo.size(), 0, 0, 0, 0, 0, 0, new ArrayList<>(batch.problems()),
 				now(), null, "Importing " + todo.size() + " trains…");
 		status = s;
+		audit.recordAs(actor, "TRAINS_IMPORT_STARTED", batch.source(), todo.size() + " trains, coaches "
+				+ (addCoaches ? coachDefaults : "none") + ", base fare " + baseFare);
 		worker.submit(() -> run(batch, todo, coachDefaults, baseFare, addCoaches));
 		return reply(HttpStatus.ACCEPTED, s.message(), s);
 	}
@@ -358,6 +363,7 @@ public class ImportService {
 					+ (p.failed > 0 ? ", " + p.failed + " couldn't be imported" : "") + ". " + p.stationsAdded
 					+ " stations added to the directory.";
 			publishDone(batch, p, "DONE", done);
+			audit.recordAs("system", "TRAINS_IMPORTED", batch.source(), done);
 			log.info("Train import finished: {}", done);
 		} catch (RuntimeException e) {
 			log.error("Train import stopped", e);
@@ -418,11 +424,14 @@ public class ImportService {
 				stop.setStationName(directory.get(in.code()).getName());
 				stop.setArrivalTime(in.arrival());
 				stop.setDepartureTime(in.departure());
-				stop.setKm(km.get(i));
-				stop.setPrice(BigDecimal.valueOf(baseFare + 1.11 * km.get(i)).setScale(2, RoundingMode.HALF_UP).doubleValue());
+				// stops keep the km from the PREVIOUS stop (the app adds them up for a journey); files give km from the start
+				double segment = i == 0 ? 0 : km.get(i) - km.get(i - 1);
+				stop.setKm(segment);
+				stop.setDay(in.day());
+				stop.setPrice(BigDecimal.valueOf(baseFare + 1.11 * segment).setScale(2, RoundingMode.HALF_UP).doubleValue());
 				stop.setRoute(route);
 				stop.setTrains(train);
-				sumKm += km.get(i);
+				sumKm += segment;
 				stops.add(stop);
 			}
 			train.setStations(stops);
@@ -580,6 +589,11 @@ public class ImportService {
 	}
 
 	/* ------------------------------------------------------------------ helpers */
+
+	private String adminName(String token) {
+		String[] who = jwtUtil.getSubject(token);
+		return who == null ? "unknown" : who[0];
+	}
 
 	private boolean isAdmin(String token) {
 		String[] who = jwtUtil.getSubject(token);

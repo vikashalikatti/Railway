@@ -30,4 +30,27 @@ public final class TravelViews {
 	public record RunningStop(String station, String code, String scheduledArrival, String scheduledDeparture,
 			String expectedArrival, String expectedDeparture, boolean passed, boolean current) {
 	}
+
+	/** A train's timetable for the public timetable page */
+	public record Timetable(int trainNumber, String trainName, String type, java.util.List<String> runningDays,
+			java.util.List<String> classes, java.util.List<TimetableStop> stops, double totalKm, String duration) {
+	}
+
+	/** One stop: day 1, 2, 3…; km from the first station; halt in minutes */
+	public record TimetableStop(int no, String station, String code, String arrives, String departs, int day, long halt,
+			double km) {
+	}
+
+	/** A train found by number or name */
+	public record TrainBrief(int trainNumber, String trainName, String from, String to) {
+	}
+
+	/** What a ticket checker sees after scanning an e-ticket's QR code */
+	public record TicketCheck(boolean valid, String message, Long pnr, Integer trainNumber, String trainName,
+			String from, String to, String boardingDate, String departs, String classLabel, String status,
+			java.util.List<TicketCheckPassenger> passengers) {
+	}
+
+	public record TicketCheckPassenger(int no, String name, int age, String gender, String status) {
+	}
 }

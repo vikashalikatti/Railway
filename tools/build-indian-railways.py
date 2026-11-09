@@ -6,7 +6,8 @@ DataMeet's open Indian Railways data (CC0): https://github.com/datameet/railways
     python3 tools/build-indian-railways.py datameet src/main/resources/data/indian-railways.json.gz
 
 Keeps trains with reserved classes, their real halts (not the stations they pass), station
-positions, and km per stop (straight line x 1.25, scaled to each train's published distance).
+positions, km from the first station per stop (straight line x 1.25, scaled to each train's
+published distance) and the day number of each stop.
 """
 import json, gzip, math, re, collections, sys
 src, out = sys.argv[1], sys.argv[2]
@@ -57,7 +58,7 @@ for f in T:
         if code not in stations:
             nm=title(s['station_name'])[:80]; stations[code]=[code,nm,city(nm),None,None,None]
         arr,dep=hm(s['arrival']),hm(s['departure'])
-        stops.append([code,arr,dep])
+        stops.append([code,arr,dep,s['day']])
     if len(stops)<2: skipped['fewer than 2 stops']+=1; continue
     # keep the first and last stop and the real halts (the data also lists stations the train passes)
     first,last=stops[0],stops[-1]
@@ -89,7 +90,7 @@ for f in T:
     if total and cum[-1]>0: cum=[c*total/cum[-1] for c in cum]
     km=[0]; 
     for c in cum[1:]: km.append(max(int(round(c)), km[-1]+1))
-    trains.append([num,title(p['name'])[:80] if p['name'].isupper() else p['name'][:80],TYPES.get(p.get('type'),p.get('type') or 'Express'),classes,[[x[0],x[1],x[2],k] for x,k in zip(stops,km)]])
+    trains.append([num,title(p['name'])[:80] if p['name'].isupper() else p['name'][:80],TYPES.get(p.get('type'),p.get('type') or 'Express'),classes,[[x[0],x[1],x[2],k,x[3]] for x,k in zip(stops,km)]])
 used={x[0] for t in trains for x in t[4]}
 st=[v for k,v in sorted(stations.items()) if k in used]
 data={"source":"DataMeet Indian Railways data, CC0 (github.com/datameet/railways), collected 2016","stations":st,"trains":sorted(trains)}

@@ -59,6 +59,8 @@ public class RunService {
 	private TicketMailer mailer;
 	@Autowired
 	private JwtUtil jwtUtil;
+	@Autowired
+	private AuditService audit;
 
 	/* ------------------------------------------------------------ admin: cancel, reschedule, position */
 
@@ -83,6 +85,8 @@ public class RunService {
 			run.setUpdatedAt(LocalDateTime.now(IST));
 			runRepository.saveAndFlush(run); // new bookings for this date are refused from now on
 			int affected = engine.cancelRun(trainNo, date, reason == null ? null : "Reason: " + reason);
+			audit.record(token, "RUN_CANCELLED", "Train " + trainNo, date + (reason != null ? ": " + reason : "") + ". "
+					+ affected + " passengers refunded.");
 			rs.setData2(view(train, date, run));
 			return reply(rs, HttpStatus.OK, "Train " + trainNo + " cancelled on " + date + ". " + affected
 					+ " passengers were cancelled with a full refund and emailed.");
@@ -113,7 +117,10 @@ public class RunService {
 			run.setDelayMinutes(delay);
 			run.setNote(reason);
 			run.setUpdatedAt(LocalDateTime.now(IST));
+			run.setLateNotifiedMinutes(delay); // everyone hears about it below
 			runRepository.save(run);
+			audit.record(token, "RUN_RESCHEDULED", "Train " + trainNo, date + ": " + delayLabel(delay) + " late"
+					+ (reason != null ? ", " + reason : ""));
 			int emailed = 0;
 			for (Booking b : bookingRepository.findByTrainNumberAndJourneyDate(trainNo, date)) {
 				boolean travelling = b.getPassengers().stream().anyMatch(p -> !Passenger.CANCELLED.equals(p.getStatus()));
@@ -167,9 +174,13 @@ public class RunService {
 				run.setDelayMinutes(minutes(body.get("delayMinutes")));
 			}
 			run.setUpdatedAt(LocalDateTime.now(IST));
+			int emailed = emailIfLate(train, date, run);
 			runRepository.save(run);
+			audit.record(token, "RUN_POSITION", "Train " + trainNo, date + ": at " + train.getStations().get(stop).getStationName()
+					+ (Boolean.TRUE.equals(run.getDeparted()) ? " (left)" : "") + ", " + run.getDelayMinutes() + " min late");
 			rs.setData2(view(train, date, run));
-			return reply(rs, HttpStatus.OK, "Running status updated");
+			return reply(rs, HttpStatus.OK, "Running status updated" + (emailed > 0 ? "; " + emailed
+					+ " bookings that haven't boarded yet were emailed that the train is running late" : ""));
 		} catch (IllegalArgumentException e) {
 			return reply(rs, HttpStatus.BAD_REQUEST, e.getMessage());
 		} catch (SecurityException e) {
@@ -349,6 +360,43 @@ public class RunService {
 		} catch (SecurityException e) {
 			return reply(rs, HttpStatus.UNAUTHORIZED, e.getMessage());
 		}
+	}
+
+	/** Delay that triggers a "running late" email, and how much more it must grow before the next one */
+	public static final int LATE_EMAIL_MINUTES = 30;
+
+	/**
+	 * Emails passengers who haven't boarded yet when the train is 30+ minutes late, and again each time
+	 * the delay grows by another 30 minutes. Returns how many bookings were emailed.
+	 */
+	private int emailIfLate(Train train, LocalDate date, TrainRun run) {
+		int delay = run.getDelayMinutes();
+		int told = run.getLateNotifiedMinutes() == null ? 0 : run.getLateNotifiedMinutes();
+		if (delay < LATE_EMAIL_MINUTES || delay < told + LATE_EMAIL_MINUTES) {
+			if (delay < told) {
+				run.setLateNotifiedMinutes(delay); // caught up: a later delay is news again
+			}
+			return 0;
+		}
+		int at = run.getCurrentStop() == null ? 0 : run.getCurrentStop();
+		boolean left = Boolean.TRUE.equals(run.getDeparted());
+		var tl = Timelines.of(train);
+		int emailed = 0;
+		for (Booking b : bookingRepository.findByTrainNumberAndJourneyDate(train.getTrainNumber(), date)) {
+			boolean travelling = b.getPassengers().stream().anyMatch(p -> !Passenger.CANCELLED.equals(p.getStatus()));
+			boolean boarded = b.getFromStop() < at || (b.getFromStop() == at && left);
+			if (!travelling || boarded) {
+				continue;
+			}
+			LocalDateTime expected = tl.departs(date, b.getFromStop()).plusMinutes(delay);
+			String note = "Running about " + delayLabel(delay) + " late. Expected to leave " + b.getFromStation() + " at "
+					+ expected.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm 'on' EEE d MMM", java.util.Locale.ENGLISH))
+					+ ". Last reported at " + train.getStations().get(at).getStationName() + ".";
+			mailer.sendAfterCommit(mailer.ticket(b, TicketMailer.Event.RUNNING_LATE, note));
+			emailed++;
+		}
+		run.setLateNotifiedMinutes(delay);
+		return emailed;
 	}
 
 	/* ------------------------------------------------------------ helpers */

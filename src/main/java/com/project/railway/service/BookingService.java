@@ -10,6 +10,7 @@ import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -41,6 +42,9 @@ import com.project.railway.helper.CompanionRules;
 import com.project.railway.helper.FareCalculator;
 import com.project.railway.helper.JwtUtil;
 import com.project.railway.helper.Quota;
+import com.project.railway.helper.RacRules;
+import com.project.railway.helper.StopDays;
+import com.project.railway.helper.WaitlistChance;
 import com.project.railway.helper.ResponseStructure;
 import com.project.railway.helper.Seat_type;
 import com.project.railway.helper.TatkalRules;
@@ -90,9 +94,31 @@ public class BookingService {
 	private com.project.railway.repository.TrainRun_Repository trainRunRepository;
 	@Autowired
 	private com.project.railway.repository.SavedPassenger_Repository savedRepository;
+	@Autowired
+	private PaymentService paymentService;
 
-	/** A train that serves the search, with the positions of the passenger's boarding and destination stops */
-	public record TrainMatch(Train train, int fromStop, int toStop, String fromStation, String toStation) {
+	/** Bookings must be paid (test gateway). Set app.payments.required=false to book without paying. */
+	@org.springframework.beans.factory.annotation.Value("${app.payments.required:true}")
+	private boolean paymentsRequired;
+
+	/**
+	 * A train that serves the search, with the positions of the passenger's boarding and destination stops.
+	 * boardingDate: the day the passenger gets on; runDate: the day the train left its first station
+	 * (earlier when boarding on Day 2 or later). departs / arrives: yyyy-MM-ddTHH:mm; minutes: journey time.
+	 */
+	public record TrainMatch(Train train, int fromStop, int toStop, String fromStation, String toStation,
+			String boardingDate, String runDate, String departs, String arrives, long minutes, int fromDay, int toDay,
+			Map<String, Long> available) {
+	}
+
+	private static final DateTimeFormatter ISO_MINUTE = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm");
+
+	static TrainMatch match(Train t, StopDays.Timeline tl, int from, int to, LocalDate runDate) {
+		List<Station> stops = t.getStations();
+		return new TrainMatch(t, from, to, stops.get(from).getStationName(), stops.get(to).getStationName(),
+				tl.boardingDate(runDate, from).toString(), runDate.toString(), tl.departs(runDate, from).format(ISO_MINUTE),
+				tl.arrives(runDate, to).format(ISO_MINUTE), tl.minutes(from, to), tl.departureDay(from), tl.day(to),
+				new java.util.LinkedHashMap<>());
 	}
 
 	/* ------------------------------------------------------------ endpoints */
@@ -107,18 +133,31 @@ public class BookingService {
 			Quota quota = plan.quota();
 			long available = coachSeatRepository.countFree(trainNo, type, plan.date(), plan.fromStop(),
 					plan.toStop(), quota.name(), plan.anyQuota());
+			if (plan.anyQuota() && RacRules.hasRac(plan.seatType())) {
+				// after the chart, RAC berths nobody needed are sold too
+				available += coachSeatRepository.countFree(trainNo, type, plan.date(), plan.fromStop(), plan.toStop(),
+						Quota.RC.name(), false);
+			}
 			long waitlisted = passengerRepository.countWaitlisted(trainNo, plan.date(), type, quota.name());
+			long racRoom = !plan.anyQuota() && plan.waitlist() && quota.hasRac() && RacRules.hasRac(plan.seatType())
+					? engine.racRoom(trainNo, plan.date(), plan.seatType(), plan.fromStop(), plan.toStop())
+					: 0;
 			String status;
+			String chance = null;
 			if (plan.closedReason() != null) {
 				status = "NOT AVAILABLE";
 			} else if (available > 0) {
 				status = String.format("AVAILABLE-%04d", available);
+			} else if (racRoom > 0 && waitlisted == 0) {
+				long onRac = passengerRepository.findRacStretches(trainNo, plan.date(), type).size();
+				status = "RAC " + (onRac + 1);
 			} else if (!plan.waitlist()) {
 				status = plan.anyQuota() ? "CHART PREPARED" : "NOT AVAILABLE";
 			} else if (waitlisted >= BookingEngine.MAX_WAITLIST) {
 				status = "REGRET";
 			} else {
 				status = quota.wlPrefix + " " + (waitlisted + 1);
+				chance = chanceLabel(trainNo, plan.seatType(), plan.date(), (int) waitlisted + 1);
 			}
 			String note = plan.closedReason();
 			if (note == null && available == 0 && !plan.waitlist()) {
@@ -126,7 +165,7 @@ public class BookingService {
 						: quota.label + " quota has no seats left and no waitlist. Try General quota.";
 			}
 			Availability a = new Availability(type, available, waitlisted, plan.farePerPassenger(), status,
-					CoachLayout.preferences(plan.seatType()), quota.name(), note, plan.anyQuota());
+					CoachLayout.preferences(plan.seatType()), quota.name(), note, plan.anyQuota(), racRoom, chance);
 			return ok(a, available > 0 ? "Seats available" : "Waitlist");
 		} catch (BookingException e) {
 			return error(e);
@@ -135,8 +174,19 @@ public class BookingService {
 
 	public ResponseEntity<ResponseStructure<Booking>> book(String token, int trainNo, String seatType, String date,
 			String from, String to, String quotaText, List<PassengerRequest> passengers) {
+		return book(token, trainNo, seatType, date, from, to, quotaText, passengers, null, false);
+	}
+
+	/** paymentId: a PAID test payment (required unless app.payments.required=false); vikalp: see VikalpService */
+	public ResponseEntity<ResponseStructure<Booking>> book(String token, int trainNo, String seatType, String date,
+			String from, String to, String quotaText, List<PassengerRequest> passengers, String paymentId,
+			boolean vikalp) {
 		try {
 			Customer customer = customerFrom(token);
+			String payment = paymentId == null || paymentId.isBlank() ? null : paymentId.trim();
+			if (payment == null && paymentsRequired) {
+				throw new BookingException(HttpStatus.PAYMENT_REQUIRED, "Pay for the ticket first.");
+			}
 			JourneyPlan plan = plan(trainNo, seatType, date, from, to, quotaText);
 			if (plan.closedReason() != null) {
 				throw new BookingException(HttpStatus.CONFLICT, plan.closedReason());
@@ -144,15 +194,28 @@ public class BookingService {
 			checkPassengers(passengers, plan.seatType());
 			// infants travel on a lap and don't count towards a quota's rules or limits
 			String notEligible = plan.quota().eligibility(passengers.stream().filter(p -> !TravelRules.isInfant(p.getAge()))
-					.map(p -> new Quota.Traveller(p.getAge(), p.getGender())).toList());
+					.map(p -> new Quota.Traveller(p.getAge(), p.getGender(), p.isDivyang())).toList());
 			if (notEligible != null) {
 				throw new BookingException(HttpStatus.BAD_REQUEST, notEligible);
 			}
-			Booking booking = withRetry(() -> engine.book(customer.getId(), plan, passengers));
+			Booking booking;
+			try {
+				booking = withRetry(() -> engine.book(customer.getId(), plan, passengers, payment, vikalp));
+			} catch (BookingException e) {
+				// the booking didn't happen: give the money back now rather than in 30 minutes
+				if (payment != null && e.getStatus() != HttpStatus.PAYMENT_REQUIRED) {
+					paymentService.refundUnused(payment, "Booking failed: " + e.getMessage());
+				} else if (payment != null) {
+					paymentService.refundUnused(payment, "Fare changed before booking");
+				}
+				throw e;
+			}
 			String message = switch (booking.getStatus()) {
 			case Booking.CONFIRMED -> "Booking confirmed. PNR " + booking.getBookingId();
 			case Booking.WAITLISTED -> "All passengers are waitlisted. PNR " + booking.getBookingId();
-			default -> "Some passengers are confirmed and some waitlisted. PNR " + booking.getBookingId();
+			case Booking.RAC -> "Booked on RAC: you travel sharing a side-lower berth until one frees up. PNR "
+					+ booking.getBookingId();
+			default -> "Some passengers are confirmed and some on RAC or waitlisted. PNR " + booking.getBookingId();
 			};
 			return respond(HttpStatus.CREATED, booking, message);
 		} catch (BookingException e) {
@@ -167,6 +230,19 @@ public class BookingService {
 			fillWaitlistPositions(booking);
 			return ok(booking, Booking.CANCELLED.equals(booking.getStatus()) ? "Booking cancelled"
 					: "Selected passengers cancelled");
+		} catch (BookingException e) {
+			return error(e);
+		}
+	}
+
+	/** What cancelling would refund, passenger by passenger (nothing is changed) */
+	public ResponseEntity<ResponseStructure<List<BookingEngine.RefundPreview>>> cancelPreview(String token, long pnr,
+			List<Long> passengerIds) {
+		try {
+			Customer customer = customerFrom(token);
+			List<BookingEngine.RefundPreview> rows = engine.cancelPreview(pnr, customer.getId(), passengerIds);
+			double total = rows.stream().mapToDouble(BookingEngine.RefundPreview::refund).sum();
+			return ok(rows, String.format(Locale.ENGLISH, "Refund ₹%,.0f", total));
 		} catch (BookingException e) {
 			return error(e);
 		}
@@ -212,26 +288,15 @@ public class BookingService {
 		List<TravelViews.PnrPassenger> rows = new java.util.ArrayList<>();
 		int n = 1;
 		for (Passenger p : b.getPassengers()) {
-			String booked = Boolean.TRUE.equals(p.getNoBerth()) ? TicketMailer.noBerthLabel(p)
-					: p.getWlNumber() != null ? TicketMailer.waitLabel(quota, p.getWlNumber()) : TicketMailer.seatLabel(p);
-			String now;
-			if (Passenger.NO_BERTH.equals(p.getStatus())) {
-				now = TicketMailer.noBerthLabel(p);
-			} else if (Passenger.CONFIRMED.equals(p.getStatus())) {
-				now = TicketMailer.seatLabel(p);
-			} else if (Passenger.WAITLISTED.equals(p.getStatus())) {
-				now = TicketMailer.waitLabel(quota, p.getCurrentWlPosition() != null ? p.getCurrentWlPosition() : p.getWlNumber());
-			} else if (Passenger.CANCELLED_TRAIN.equals(p.getCancelReason())) {
-				now = "Train cancelled";
-			} else if (Passenger.CANCELLED_AT_CHART.equals(p.getCancelReason())) {
-				now = "Not confirmed at charting";
-			} else {
-				now = "Cancelled";
+			String booked = TicketMailer.bookedLabel(p, quota);
+			String now = TicketMailer.currentLabel(p, quota);
+			if (Passenger.WAITLISTED.equals(p.getStatus()) && p.getConfirmChance() != null) {
+				now += ", chance " + p.getConfirmChance();
 			}
 			rows.add(new TravelViews.PnrPassenger(n++, booked, now));
 		}
 		return ok(new TravelViews.PnrView(b.getBookingId(), b.getTrainNumber(), b.getTrainName(), b.getFromStation(),
-				b.getToStation(), b.getJourneyDate().toString(), b.getSeatType(), quota.name(), b.getChartStatus(),
+				b.getToStation(), (b.getBoardingDate() != null ? b.getBoardingDate() : b.getJourneyDate()).toString(), b.getSeatType(), quota.name(), b.getChartStatus(),
 				b.getStatus(), b.getRefundAmount(), rows), "PNR status");
 	}
 
@@ -345,54 +410,67 @@ public class BookingService {
 			LocalDate date = parseDate(dateText);
 			StationDirectory.Place origin = stationDirectory.resolve(from);
 			StationDirectory.Place destination = stationDirectory.resolve(to);
-			LocalDate today = LocalDate.now(IST);
+			LocalDateTime now = LocalDateTime.now(IST);
 			Set<Integer> candidates = numbersStoppingAt(origin);
 			candidates.addAll(numbersStoppingAt(destination));
-			List<Train> running = trainRepository.findAllById(candidates).stream()
-					.filter(t -> runsOn(t, date) && t.getStations() != null && t.getStations().size() > 1)
-					.filter(t -> { TrainRun r = trainRunRepository.findByTrainNumberAndJourneyDate(t.getTrainNumber(), date); return r == null || !r.isCancelled(); })
-					.toList();
+			List<Train> trains = trainRepository.findAllById(candidates).stream()
+					.filter(t -> t.getStations() != null && t.getStations().size() > 1).toList();
+			Map<Integer, StopDays.Timeline> timelines = new java.util.HashMap<>();
+			trains.forEach(t -> timelines.put(t.getTrainNumber(), Timelines.of(t)));
 
-			record Option(TravelViews.Connection c, LocalTime arrives) {
+			record Option(TravelViews.Connection c, LocalDateTime arrives) {
 			}
 			List<Option> options = new java.util.ArrayList<>();
-			for (Train a : running) {
+			for (Train a : trains) {
 				List<Station> as = a.getStations();
+				StopDays.Timeline ta = timelines.get(a.getTrainNumber());
 				for (int i = 0; i < as.size(); i++) {
 					if (!origin.matches(as.get(i))) {
 						continue;
 					}
-					LocalTime leaves = as.get(i).getDepartureTime();
-					if (date.equals(today) && leaves != null && !leaves.isAfter(LocalTime.now(IST))) {
-						continue;
+					LocalDate runA = ta.runDate(date, i);
+					if (!runsOn(a, runA) || cancelled(a.getTrainNumber(), runA) || !ta.departs(runA, i).isAfter(now)) {
+						break;
 					}
 					for (int j = i + 1; j < as.size(); j++) {
 						Station change = as.get(j);
-						if (destination.matches(change) || change.getArrivalTime() == null) {
-							continue; // that's a direct train, not a change
+						if (destination.matches(change)) {
+							break; // a direct train, not a change
 						}
-						for (Train b : running) {
+						LocalDateTime reach = ta.arrives(runA, j);
+						for (Train b : trains) {
 							if (b.getTrainNumber() == a.getTrainNumber()) {
 								continue;
 							}
 							List<Station> bs = b.getStations();
+							StopDays.Timeline tb = timelines.get(b.getTrainNumber());
 							for (int k = 0; k < bs.size() - 1; k++) {
-								if (!placeKey(bs.get(k)).equals(placeKey(change)) || bs.get(k).getDepartureTime() == null) {
+								if (!placeKey(bs.get(k)).equals(placeKey(change))) {
 									continue;
 								}
-								long wait = java.time.Duration.between(change.getArrivalTime(), bs.get(k).getDepartureTime()).toMinutes();
-								if (wait < MIN_CHANGE_MINUTES || wait > MAX_CHANGE_MINUTES) {
-									continue;
-								}
-								for (int m = k + 1; m < bs.size(); m++) {
-									if (destination.matches(bs.get(m))) {
-										TrainMatch first = new TrainMatch(a, i, j, as.get(i).getStationName(), change.getStationName());
-										TrainMatch second = new TrainMatch(b, k, m, bs.get(k).getStationName(), bs.get(m).getStationName());
-										options.add(new Option(new TravelViews.Connection(first, second, change.getStationName(), wait),
-												bs.get(m).getArrivalTime() == null ? LocalTime.MAX : bs.get(m).getArrivalTime()));
-										break;
+								int m = -1;
+								for (int x = k + 1; x < bs.size() && m < 0; x++) {
+									if (destination.matches(bs.get(x))) {
+										m = x;
 									}
 								}
+								if (m < 0) {
+									break;
+								}
+								// the run of train b that leaves the change station soonest after a gets there
+								for (LocalDate boardB : List.of(reach.toLocalDate(), reach.toLocalDate().plusDays(1))) {
+									LocalDate runB = tb.runDate(boardB, k);
+									LocalDateTime leaveB = tb.departs(runB, k);
+									long wait = java.time.Duration.between(reach, leaveB).toMinutes();
+									if (wait < MIN_CHANGE_MINUTES || wait > MAX_CHANGE_MINUTES || !runsOn(b, runB)
+											|| cancelled(b.getTrainNumber(), runB)) {
+										continue;
+									}
+									options.add(new Option(new TravelViews.Connection(match(a, ta, i, j, runA),
+											match(b, tb, k, m, runB), change.getStationName(), wait), tb.arrives(runB, m)));
+									break;
+								}
+								break;
 							}
 						}
 					}
@@ -441,19 +519,14 @@ public class BookingService {
 				throw new BookingException(HttpStatus.BAD_REQUEST, "From and To can’t be the same station.");
 			}
 
-			String day = date.getDayOfWeek().name();
 			List<TrainMatch> matches = new java.util.ArrayList<>();
 			Set<Integer> candidates = numbersStoppingAt(origin);
 			candidates.retainAll(numbersStoppingAt(destination));
 			List<Train> found = new java.util.ArrayList<>(trainRepository.findAllById(candidates));
-			found.sort(java.util.Comparator.comparingInt(Train::getTrainNumber));
+			LocalDateTime now = LocalDateTime.now(IST);
 			for (Train train : found) {
-				if (train.getSchedule() == null || train.getSchedule().getRunningWeeks() == null || Arrays
-						.stream(train.getSchedule().getRunningWeeks()).noneMatch(d -> d != null && d.trim().equalsIgnoreCase(day))) {
-					continue;
-				}
 				List<Station> stops = train.getStations();
-				if (stops == null) {
+				if (stops == null || train.getSchedule() == null || train.getSchedule().getRunningWeeks() == null) {
 					continue;
 				}
 				int fromStop = -1;
@@ -474,15 +547,23 @@ public class BookingService {
 				if (toStop < 0) {
 					continue;
 				}
-				if (date.equals(today)) {
-					LocalTime departs = stops.get(fromStop).getDepartureTime();
-					if (departs != null && !departs.isAfter(LocalTime.now(IST))) {
-						continue; // already left today
+				// date is the day the passenger boards; on Day 2+ stops the train left its first station earlier
+				StopDays.Timeline tl = Timelines.of(stops);
+				LocalDate runDate = tl.runDate(date, fromStop);
+				if (!runsOn(train, runDate) || !tl.departs(runDate, fromStop).isAfter(now)) {
+					continue; // doesn't run then, or already left
+				}
+				TrainMatch m = match(train, tl, fromStop, toStop, runDate);
+				// free General-quota berths per class, for the "seats available" filter and the class tiles
+				if (train.getCoaches() != null) {
+					for (String type : train.getCoaches().stream().map(c -> c.getCoachType()).distinct().toList()) {
+						m.available().put(type, coachSeatRepository.countFree(train.getTrainNumber(), type, runDate, fromStop,
+								toStop, Quota.GN.name(), false));
 					}
 				}
-				matches.add(new TrainMatch(train, fromStop, toStop, stops.get(fromStop).getStationName(),
-						stops.get(toStop).getStationName()));
+				matches.add(m);
 			}
+			matches.sort(java.util.Comparator.comparing(TrainMatch::departs));
 			if (matches.isEmpty()) {
 				throw new BookingException(HttpStatus.NOT_FOUND,
 						"No trains run from " + origin.label() + " to " + destination.label() + " on that date.");
@@ -506,6 +587,9 @@ public class BookingService {
 		Customer customer = customerRepository.findByEmail(subject[0]);
 		if (customer == null) {
 			throw new BookingException(HttpStatus.UNAUTHORIZED, "Your account wasn't found. Log in again.");
+		}
+		if (Boolean.TRUE.equals(customer.getBlocked())) {
+			throw new BookingException(HttpStatus.FORBIDDEN, "Your account is blocked. Contact support.");
 		}
 		return customer;
 	}
@@ -546,14 +630,6 @@ public class BookingService {
 		if (train.getSchedule() == null || train.getSchedule().getRunningWeeks() == null) {
 			throw new BookingException(HttpStatus.BAD_REQUEST, "This train has no running days set.");
 		}
-		DayOfWeek day = date.getDayOfWeek();
-		boolean runs = Arrays.stream(train.getSchedule().getRunningWeeks())
-				.anyMatch(d -> d != null && d.trim().equalsIgnoreCase(day.name()));
-		if (!runs) {
-			throw new BookingException(HttpStatus.BAD_REQUEST, "This train doesn't run on "
-					+ day.getDisplayName(java.time.format.TextStyle.FULL, Locale.ENGLISH) + ".");
-		}
-
 		List<Station> stops = train.getStations();
 		int fromStop = indexOf(stops, from, 0);
 		if (fromStop < 0) {
@@ -565,12 +641,24 @@ public class BookingService {
 					"This train doesn't go from " + from + " to " + to + ".");
 		}
 
-		if (date.equals(today)) {
-			LocalTime departs = stops.get(fromStop).getDepartureTime();
-			if (departs != null && !departs.isAfter(LocalTime.now(IST))) {
-				throw new BookingException(HttpStatus.BAD_REQUEST,
-						"This train has already left " + stops.get(fromStop).getStationName() + " today.");
-			}
+		// date is the day the passenger boards; seats, charts and runs belong to the day the train left its
+		// first station, which is earlier when boarding on Day 2 or later
+		LocalDate boardingDate = date;
+		StopDays.Timeline timeline = Timelines.of(stops);
+		date = timeline.runDate(boardingDate, fromStop);
+		DayOfWeek day = date.getDayOfWeek();
+		boolean runs = Arrays.stream(train.getSchedule().getRunningWeeks())
+				.anyMatch(d -> d != null && d.trim().equalsIgnoreCase(day.name()));
+		if (!runs) {
+			throw new BookingException(HttpStatus.BAD_REQUEST, "This train doesn't leave "
+					+ stops.get(fromStop).getStationName() + " on that date"
+					+ (timeline.departureDay(fromStop) > 1 ? " (it reaches there on Day " + timeline.departureDay(fromStop)
+							+ " of a run that starts on a " + day.getDisplayName(java.time.format.TextStyle.FULL, Locale.ENGLISH) + ")" : "")
+					+ ".");
+		}
+		if (!timeline.departs(date, fromStop).isAfter(LocalDateTime.now(IST))) {
+			throw new BookingException(HttpStatus.BAD_REQUEST,
+					"This train has already left " + stops.get(fromStop).getStationName() + ".");
 		}
 
 		double distance = 0;
@@ -589,6 +677,9 @@ public class BookingService {
 		} catch (IllegalArgumentException e) {
 			throw new BookingException(HttpStatus.BAD_REQUEST, "Unknown quota " + quotaText + ".");
 		}
+		if (!quota.bookable()) {
+			throw new BookingException(HttpStatus.BAD_REQUEST, quota.eligibility(List.of()));
+		}
 		if (!quota.offeredIn(seatType)) {
 			throw new BookingException(HttpStatus.BAD_REQUEST,
 					quota.label + " quota isn't offered in " + CoachLayout.shortCode(seatType) + ".");
@@ -597,17 +688,14 @@ public class BookingService {
 		// Charts: the first chart (4 hours before the train starts) frees every quota's unsold seats and
 		// ends the waitlist; the final chart (30 minutes before the passenger's train leaves) ends booking.
 		LocalDateTime now = LocalDateTime.now(IST);
-		LocalTime startTime = stops.get(0).getDepartureTime() != null ? stops.get(0).getDepartureTime() : LocalTime.MIDNIGHT;
-		LocalTime boardTime = stops.get(fromStop).getDepartureTime() != null ? stops.get(fromStop).getDepartureTime()
-				: startTime;
 		ChartRun run = chartRepository.findByTrainNumberAndJourneyDate(trainNo, date);
 		int stage = run == null ? ChartRun.NOT_PREPARED : run.getStage();
-		boolean firstChartDue = !now.isBefore(TatkalRules.firstChartAt(date.atTime(startTime)));
+		boolean firstChartDue = !now.isBefore(TatkalRules.firstChartAt(timeline.departs(date, 0)));
 
 		String closed = null;
 		boolean anyQuota = false;
 		boolean waitlist = quota.hasWaitlist;
-		if (!now.isBefore(TatkalRules.finalChartAt(date.atTime(boardTime)))) {
+		if (!now.isBefore(TatkalRules.finalChartAt(timeline.departs(date, fromStop)))) {
 			closed = "Booking has closed: the final chart is prepared 30 minutes before departure.";
 		} else if (firstChartDue || stage >= ChartRun.FIRST) {
 			if (stage < ChartRun.FIRST) {
@@ -648,7 +736,7 @@ public class BookingService {
 
 		return new JourneyPlan(trainNo, train.getTrainName(), seatType, date, fromStop, toStop,
 				stops.get(fromStop).getStationName(), stops.get(toStop).getStationName(), distance, fare, quota,
-				anyQuota, waitlist, closed);
+				anyQuota, waitlist, closed, timeline.boardingDate(date, fromStop));
 	}
 
 	private void checkPassengers(List<PassengerRequest> passengers, Seat_type type) {
@@ -687,6 +775,13 @@ public class BookingService {
 			if (p.isHelper() && asksForHelp) {
 				throw new BookingException(HttpStatus.BAD_REQUEST,
 						"Passenger " + (i + 1) + " can't volunteer as a helper on a ticket that asks for help.");
+			}
+			if (p.isDivyang()) {
+				String card = p.getConcessionCard() == null ? "" : p.getConcessionCard().trim();
+				if (!card.matches("[A-Za-z0-9/-]{6,20}")) {
+					throw new BookingException(HttpStatus.BAD_REQUEST,
+							"Passenger " + (i + 1) + ": enter the disability concession card number (6 to 20 letters and digits).");
+				}
 			}
 			if (p.isNoBerth() && p.getAge() >= TravelRules.CHILD_UNDER) {
 				throw new BookingException(HttpStatus.BAD_REQUEST,
@@ -793,8 +888,47 @@ public class BookingService {
 				long ahead = passengerRepository.countWaitlistedBefore(b.getTrainNumber(), b.getJourneyDate(),
 						b.getSeatType(), quota, p.getWlNumber());
 				p.setCurrentWlPosition((int) ahead + 1);
+				if (stage < ChartRun.FIRST) {
+					p.setConfirmChance(chanceLabel(b.getTrainNumber(), Seat_type.valueOf(b.getSeatType()), b.getJourneyDate(),
+							(int) ahead + 1));
+				}
+			}
+			if (Passenger.RAC.equals(p.getStatus()) && p.getRacNumber() != null) {
+				long ahead = passengerRepository.countRacBefore(b.getTrainNumber(), b.getJourneyDate(), b.getSeatType(),
+						p.getRacNumber());
+				p.setCurrentRacPosition((int) ahead + 1);
 			}
 		}
+		if (b.getBoardingDate() == null) {
+			b.setBoardingDate(b.getJourneyDate()); // bookings made before boarding dates existed (not saved)
+		}
+	}
+
+	/**
+	 * Chance that waitlist position `position` is confirmed or reaches RAC by the chart, from this train and
+	 * class's last 90 days, or a rule of thumb when there's too little history.
+	 */
+	String chanceLabel(int trainNo, Seat_type type, LocalDate date, int position) {
+		LocalDate today = LocalDate.now(IST);
+		long seats = coachSeatRepository.countSeatsInClassOn(trainNo, type.name(), date);
+		long rac = RacRules.hasRac(type)
+				? coachSeatRepository.countSeatsInQuotaOn(trainNo, type.name(), Quota.RC.name(), date) * RacRules.PER_BERTH
+				: 0;
+		int history = 0;
+		int confirmed = 0;
+		List<Object[]> rows = passengerRepository.waitlistHistory(trainNo, type.name(), today.minusDays(90),
+				today.minusDays(1), Math.max(1, position - 5), position + 5);
+		if (!rows.isEmpty() && rows.get(0)[0] != null) {
+			history = ((Number) rows.get(0)[0]).intValue();
+			confirmed = rows.get(0)[1] == null ? 0 : ((Number) rows.get(0)[1]).intValue();
+		}
+		WaitlistChance.Chance c = WaitlistChance.estimate(position, seats, rac, history, confirmed);
+		return c.label() + " (" + c.percent() + "%)";
+	}
+
+	private boolean cancelled(int trainNo, LocalDate runDate) {
+		TrainRun r = trainRunRepository.findByTrainNumberAndJourneyDate(trainNo, runDate);
+		return r != null && r.isCancelled();
 	}
 
 	private static <T> ResponseEntity<ResponseStructure<T>> ok(T data, String message) {

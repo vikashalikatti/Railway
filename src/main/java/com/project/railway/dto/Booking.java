@@ -39,6 +39,8 @@ public class Booking {
 	public static final String CONFIRMED = "CONFIRMED";
 	public static final String PARTIAL = "PARTIALLY_CONFIRMED";
 	public static final String WAITLISTED = "WAITLISTED";
+	/** Everyone travels, some on RAC */
+	public static final String RAC = "RAC";
 	public static final String CANCELLED = "CANCELLED";
 
 	/** The PNR number */
@@ -78,7 +80,7 @@ public class Booking {
 	@Column(name = "seat_type", nullable = false, length = 20)
 	private String seatType;
 
-	/** GN, TQ, PT, LD or SS (empty means General, for bookings made before quotas existed) */
+	/** GN, TQ, PT, LD, SS or PH (empty means General, for bookings made before quotas existed) */
 	@Column(length = 2)
 	private String quota;
 
@@ -103,6 +105,28 @@ public class Booking {
 	@Column(name = "refund_amount")
 	private Double refundAmount;
 
+	/**
+	 * The date the passenger boards. journeyDate is the date the train leaves its FIRST station (seats,
+	 * charts and runs are per train run); they differ when boarding on Day 2 or later.
+	 */
+	@Column(name = "boarding_date")
+	private java.time.LocalDate boardingDate;
+
+	/** The test payment that paid for this booking */
+	@Column(name = "payment_id", length = 40)
+	private String paymentId;
+
+	/** Vikalp: if still waitlisted at the chart, move to another train with seats */
+	private Boolean vikalp;
+
+	/** PNR this booking was moved from under Vikalp */
+	@Column(name = "vikalp_from")
+	private Long vikalpFrom;
+
+	/** A note for the passenger, e.g. "Moved from PNR 456789301 under Vikalp" */
+	@Column(length = 200)
+	private String note;
+
 	/** NOT_PREPARED, PREPARED (first chart) or FINAL (filled in when a PNR is read; not stored) */
 	@jakarta.persistence.Transient
 	private String chartStatus;
@@ -111,12 +135,15 @@ public class Booking {
 	public void refreshStatus() {
 		// passengers without a berth (NB) follow the rest of the booking and don't decide its status
 		long cnf = passengers.stream().filter(p -> Passenger.CONFIRMED.equals(p.getStatus())).count();
+		long rac = passengers.stream().filter(p -> Passenger.RAC.equals(p.getStatus())).count();
 		long wl = passengers.stream().filter(p -> Passenger.WAITLISTED.equals(p.getStatus())).count();
-		if (cnf == 0 && wl == 0) {
+		if (cnf == 0 && rac == 0 && wl == 0) {
 			status = CANCELLED;
-		} else if (wl == 0) {
+		} else if (wl == 0 && rac == 0) {
 			status = CONFIRMED;
-		} else if (cnf == 0) {
+		} else if (wl == 0) {
+			status = RAC; // everyone travels, some sharing a berth
+		} else if (cnf == 0 && rac == 0) {
 			status = WAITLISTED;
 		} else {
 			status = PARTIAL;

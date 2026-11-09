@@ -45,6 +45,10 @@ public class Admin_Controller {
 
 	@Autowired
 	private ImportService importService;
+	@Autowired
+	private com.project.railway.service.CustomerAdminService customerAdmin;
+	@Autowired
+	private com.project.railway.service.AuditService auditService;
 
 
 	@org.springframework.beans.factory.annotation.Autowired
@@ -171,6 +175,44 @@ public class Admin_Controller {
 			@RequestParam(required = false, defaultValue = "") String q,
 			@RequestParam(required = false, defaultValue = "50") int limit) {
 		return admin_Service.listTrains(token, q, limit);
+	}
+
+	/* ------------------------------------------------------------ customers and audit log */
+
+	/** Customers by name, email or mobile (newest first), up to :limit (1-200) */
+	@GetMapping("/customers")
+	public ResponseEntity<ResponseStructure<List<com.project.railway.service.CustomerAdminService.CustomerView>>> customers(
+			@RequestHeader("Bearer") String token, @RequestParam(required = false, defaultValue = "") String q,
+			@RequestParam(required = false, defaultValue = "50") int limit) {
+		return customerAdmin.list(token, q, limit);
+	}
+
+	@GetMapping("/customers/{id}/bookings")
+	public ResponseEntity<ResponseStructure<List<com.project.railway.dto.Booking>>> customerBookings(
+			@RequestHeader("Bearer") String token, @PathVariable int id) {
+		return customerAdmin.bookings(token, id);
+	}
+
+	/** Body: {"reason": "…"} (optional) */
+	@PostMapping("/customers/{id}/block")
+	public ResponseEntity<ResponseStructure<com.project.railway.service.CustomerAdminService.CustomerView>> blockCustomer(
+			@RequestHeader("Bearer") String token, @PathVariable int id,
+			@RequestBody(required = false) Map<String, Object> body) {
+		return customerAdmin.block(token, id, body);
+	}
+
+	@PostMapping("/customers/{id}/unblock")
+	public ResponseEntity<ResponseStructure<com.project.railway.service.CustomerAdminService.CustomerView>> unblockCustomer(
+			@RequestHeader("Bearer") String token, @PathVariable int id) {
+		return customerAdmin.unblock(token, id);
+	}
+
+	/** Audit log, newest first; q matches admin, action, target or details */
+	@GetMapping("/audit")
+	public ResponseEntity<ResponseStructure<List<com.project.railway.dto.AuditLog>>> audit(
+			@RequestHeader("Bearer") String token, @RequestParam(required = false, defaultValue = "") String q,
+			@RequestParam(required = false, defaultValue = "200") int limit) {
+		return auditService.list(token, q, limit);
 	}
 
 	/* ------------------------------------------------------------ bulk import */

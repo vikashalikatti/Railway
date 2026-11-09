@@ -24,7 +24,6 @@ import org.springframework.ui.freemarker.FreeMarkerTemplateUtils;
 import com.project.railway.dto.Booking;
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Passenger;
-import com.project.railway.dto.Station;
 import com.project.railway.dto.Train;
 import com.project.railway.helper.CoachLayout;
 import com.project.railway.helper.Quota;
@@ -53,7 +52,8 @@ public class TicketMailer {
 	private static final DateTimeFormatter BOOKED_AT = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.ENGLISH);
 
 	public enum Event {
-		BOOKED, CONFIRMED_FROM_WAITLIST, CANCELLED, CHART_PREPARED, TRAIN_CANCELLED, RESCHEDULED
+		BOOKED, CONFIRMED_FROM_WAITLIST, RAC_FROM_WAITLIST, CANCELLED, CHART_PREPARED, TRAIN_CANCELLED, RESCHEDULED,
+		VIKALP_MOVED, RUNNING_LATE
 	}
 
 	/** One row of the passenger table */
@@ -110,32 +110,24 @@ public class TicketMailer {
 
 		String departs = "";
 		String arrives = "";
+		java.time.LocalDate boarding = b.getBoardingDate() != null ? b.getBoardingDate() : b.getJourneyDate();
 		Train train = trainRepository.findByTrainNumber(b.getTrainNumber());
 		if (train != null && train.getStations() != null && b.getToStop() < train.getStations().size()) {
-			departs = time(train.getStations().get(b.getFromStop()).getDepartureTime());
-			Station end = train.getStations().get(b.getToStop());
-			arrives = time(end.getArrivalTime());
+			var tl = Timelines.of(train);
+			var leaves = tl.departs(b.getJourneyDate(), b.getFromStop());
+			var reaches = tl.arrives(b.getJourneyDate(), b.getToStop());
+			departs = leaves.format(TIME);
+			long days = java.time.temporal.ChronoUnit.DAYS.between(leaves.toLocalDate(), reaches.toLocalDate());
+			arrives = reaches.format(TIME) + (days > 0 ? " (" + reaches.format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)) + ")" : "");
+			boarding = leaves.toLocalDate();
 		}
 
 		List<Line> lines = new ArrayList<>();
 		int i = 1;
 		for (Passenger p : b.getPassengers()) {
 			boolean noBerth = Boolean.TRUE.equals(p.getNoBerth());
-			String booked = noBerth ? noBerthLabel(p) : p.getWlNumber() != null ? waitLabel(quota, p.getWlNumber()) : seatLabel(p);
-			String now;
-			if (Passenger.NO_BERTH.equals(p.getStatus())) {
-				now = noBerthLabel(p);
-			} else if (Passenger.CANCELLED_TRAIN.equals(p.getCancelReason())) {
-				now = "Train cancelled";
-			} else if (Passenger.CONFIRMED.equals(p.getStatus())) {
-				now = seatLabel(p);
-			} else if (Passenger.WAITLISTED.equals(p.getStatus())) {
-				now = waitLabel(quota, p.getWlNumber() == null ? 0 : p.getWlNumber());
-			} else if (Passenger.CANCELLED_AT_CHART.equals(p.getCancelReason())) {
-				now = "Not confirmed at charting";
-			} else {
-				now = "Cancelled";
-			}
+			String booked = bookedLabel(p, quota);
+			String now = currentLabel(p, quota);
 			String extras = extrasLabel(p);
 			if (Passenger.CONFIRMED.equals(p.getStatus()) && p.getCompanionNote() != null) {
 				extras = extras.isEmpty() ? p.getCompanionNote() : extras + ". " + p.getCompanionNote();
@@ -143,12 +135,16 @@ public class TicketMailer {
 				extras = (extras.isEmpty() ? "" : extras + ". ") + "Boarding help asked for; no helper on this coach yet";
 			}
 			lines.add(new Line(i++, p.getName(), p.getAge(), p.getGender() + (extras.isEmpty() ? "" : ", " + extras), booked,
-					now, Passenger.CONFIRMED.equals(p.getStatus()) || Passenger.NO_BERTH.equals(p.getStatus()),
+					now, Passenger.CONFIRMED.equals(p.getStatus()) || Passenger.NO_BERTH.equals(p.getStatus())
+							|| Passenger.RAC.equals(p.getStatus()),
 					Passenger.CANCELLED.equals(p.getStatus())));
 		}
 
+		if (note == null && b.getNote() != null && (event == Event.VIKALP_MOVED || event == Event.BOOKED)) {
+			note = b.getNote();
+		}
 		return new Ticket(event, c.getEmail(), c.getName(), b.getBookingId(), b.getTrainNumber(), b.getTrainName(),
-				b.getFromStation(), b.getToStation(), b.getJourneyDate().format(DAY), departs, arrives,
+				b.getFromStation(), b.getToStation(), boarding.format(DAY), departs, arrives,
 				label(type) + " (" + CoachLayout.shortCode(type) + ")", quota.label, statusLabel(b.getStatus()),
 				String.format(Locale.ENGLISH, "₹%,.0f", b.getTotalFare()),
 				String.format(Locale.ENGLISH, "%.0f km", b.getDistanceKm()),
@@ -226,6 +222,12 @@ public class TicketMailer {
 		switch (t.event()) {
 		case CONFIRMED_FROM_WAITLIST:
 			return "Your waitlisted ticket is confirmed – PNR " + t.pnr() + " – " + trip;
+		case RAC_FROM_WAITLIST:
+			return "Your waitlisted ticket moved to RAC – PNR " + t.pnr() + " – " + trip;
+		case VIKALP_MOVED:
+			return "Vikalp: you have a confirmed seat on another train – PNR " + t.pnr() + " – " + trip;
+		case RUNNING_LATE:
+			return "Train running late – PNR " + t.pnr() + " – " + trip;
 		case CANCELLED:
 			return "Cancellation – PNR " + t.pnr() + " – " + trip;
 		case CHART_PREPARED:
@@ -243,6 +245,12 @@ public class TicketMailer {
 		switch (e) {
 		case CONFIRMED_FROM_WAITLIST:
 			return "Your ticket is confirmed";
+		case RAC_FROM_WAITLIST:
+			return "You're on RAC now";
+		case VIKALP_MOVED:
+			return "Moved to another train (Vikalp)";
+		case RUNNING_LATE:
+			return "Your train is running late";
 		case CANCELLED:
 			return "Cancellation done";
 		case CHART_PREPARED:
@@ -260,6 +268,13 @@ public class TicketMailer {
 		switch (e) {
 		case CONFIRMED_FROM_WAITLIST:
 			return "Seats were freed by a cancellation, and your waitlisted passengers now have a coach and berth.";
+		case RAC_FROM_WAITLIST:
+			return "Your waitlisted passengers moved up to RAC: they can travel, sharing a side-lower berth until a berth frees up.";
+		case VIKALP_MOVED:
+			return "Your passengers were still waitlisted when the chart was prepared, so under Vikalp they were moved to "
+					+ "the train below, where they have confirmed berths. There is no extra charge.";
+		case RUNNING_LATE:
+			return "Your train is running late. Please check the expected time below before you leave for the station.";
 		case CANCELLED:
 			return "The passengers marked Cancelled below no longer travel on this ticket.";
 		case CHART_PREPARED:
@@ -297,6 +312,59 @@ public class TicketMailer {
 		}
 		sb.append("\nCarry a photo ID when you travel.\n\nRailway");
 		return sb.toString();
+	}
+
+	/** Status when booked: "CNF S1/33/Lower", "RAC 4", "WL 12" or the no-berth label */
+	static String bookedLabel(Passenger p, Quota quota) {
+		if (Boolean.TRUE.equals(p.getNoBerth())) {
+			return noBerthLabel(p);
+		}
+		if (p.getWlNumber() != null) {
+			return waitLabel(quota, p.getWlNumber());
+		}
+		if (p.getRacNumber() != null) {
+			return "RAC " + p.getRacNumber();
+		}
+		return seatLabel(p);
+	}
+
+	/** Status now, including the refund for a cancelled passenger */
+	static String currentLabel(Passenger p, Quota quota) {
+		String refund = p.getRefund() != null && p.getRefund() > 0
+				? String.format(Locale.ENGLISH, " (refund ₹%,.0f)", p.getRefund())
+				: "";
+		if (Passenger.NO_BERTH.equals(p.getStatus())) {
+			return noBerthLabel(p);
+		}
+		if (Passenger.CANCELLED_TRAIN.equals(p.getCancelReason())) {
+			return "Train cancelled" + refund;
+		}
+		if (Passenger.CONFIRMED.equals(p.getStatus())) {
+			return seatLabel(p);
+		}
+		if (Passenger.RAC.equals(p.getStatus())) {
+			return racLabel(p);
+		}
+		if (Passenger.WAITLISTED.equals(p.getStatus())) {
+			return waitLabel(quota, p.getCurrentWlPosition() != null ? p.getCurrentWlPosition()
+					: p.getWlNumber() == null ? 0 : p.getWlNumber());
+		}
+		if (Passenger.CANCELLED_VIKALP.equals(p.getCancelReason())) {
+			return "Moved to another train (Vikalp)";
+		}
+		if (Passenger.CANCELLED_AT_CHART.equals(p.getCancelReason())) {
+			return "Not confirmed at charting" + refund;
+		}
+		return "Cancelled" + refund;
+	}
+
+	/** "RAC 3", or after the chart "RAC S1/39 (shared side lower)" */
+	static String racLabel(Passenger p) {
+		if (p.getCoachNumber() != null && p.getSeatNumber() != null) {
+			return "RAC " + p.getCoachNumber() + "/" + p.getSeatNumber() + " (shared side lower)";
+		}
+		Integer n = p.getCurrentRacPosition() != null ? p.getCurrentRacPosition() : p.getRacNumber();
+		return "RAC " + (n == null ? "" : n);
 	}
 
 	static String seatLabel(Passenger p) {

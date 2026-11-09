@@ -1,5 +1,63 @@
 # Changelog — Railway backend
 
+## v1.11.1 — 9 Nov 2026
+- README: what the project does, setup and environment variables, test payments, how booking works,
+  the main endpoints and the project structure. No code changes. Use with frontend v1.16.1.
+
+## v1.11.0 — 9 Nov 2026
+RAC, cancellation charges, Day 2/3 stops, Vikalp, Divyangjan quota, test payments, e-tickets, admin
+tools and rate limits. Use with frontend v1.16.0. Hibernate adds the new tables (payment,
+refund_entry, audit_log) and columns (passenger: rac_number, refund, cancellation_charge, divyang,
+concession_card; pnr_booking: boarding_date, payment_id, vikalp, vikalp_from, note; station:
+day_number; quota_share: rac_berths, divyang_pct; train_run: late_notified_minutes; customer:
+blocked, blocked_reason).
+
+**Fix**: the v1.10.0 train import saved each stop's km from the FIRST station, but the app adds up
+km from the PREVIOUS stop, so imported trains' fares were far too high. Delete trains imported with
+v1.10.0 and import them again.
+
+- **RAC**: side-lower berths in SL, 3A, 3E and 2A are kept as RAC berths (default 4, 2, 2, 1 per
+  coach; the admin's quota editor sets them). When a class is full, General and Tatkal passengers
+  get RAC (two per RAC berth, counted per stretch of the route) before the waitlist. A freed berth
+  goes to RAC first, then the waitlist moves up into RAC. At the chart, RAC passengers left share
+  RAC berths in pairs. Booking status RAC; tickets show "RAC 3" or "RAC S1/39 (shared side lower)".
+  Existing trains get RAC berths when their quotas are saved again.
+- **Cancellation charges** (Indian Railways rules): confirmed tickets lose a flat charge per class
+  more than 48 h before departure, 25% from 48 to 12 h, 50% from 12 h to the chart, and get nothing
+  back after the chart; RAC and waitlisted tickets lose a ₹60 clerkage charge; Tatkal confirmed and
+  Premium Tatkal get nothing back; meals and bedrolls are refunded before the chart. Passengers
+  still waitlisted at the chart are refunded minus clerkage; train cancellations refund everything.
+  POST /customer/cancel_preview/{pnr} shows the refund before cancelling.
+- **Day 2 / Day 3 stops**: each stop has a day (station.day_number), set by the admin or worked out
+  from the times. The search date is the day the passenger boards; seats, charts and runs belong to
+  the day the train left its first station (booking.journey_date), and booking.boarding_date is the
+  boarding day. Searches, charts, Tatkal, connections and emails use real date-times.
+- **Vikalp**: a waitlisted booking can opt in (?vikalp=true). If still fully waitlisted at the
+  chart, it moves to another train between the same stations, same class, leaving within 12 hours,
+  that has berths for everyone (new PNR, no extra charge); otherwise it's dropped with a refund.
+- **Divyangjan quota (PH)**: a passenger with a disability concession card plus one escort, lower
+  berths (2% of SL, 3A, 3E, 2A by default). Only the card's last 4 characters are stored.
+- **Test payment gateway**: POST /customer/payments, /payments/{id}/confirm (card + OTP 123456,
+  UPI, net banking; test failure cases). Bookings need a PAID payment (?payment_id=…; switch off with
+  PAYMENTS_REQUIRED=false). Refunds go back to the payment. Unused payments are refunded after
+  30 minutes. Card numbers and CVVs are never stored.
+- **E-tickets**: GET /customer/ticket-code/{pnr} signs a QR code; GET /customer/verify-ticket
+  (public) shows a ticket checker the live status, or that the code is forged or expired.
+- **Timetable**: GET /customer/timetable/{train} and /customer/train-search (public).
+- **Search**: results carry boarding date, departure / arrival date-times, journey minutes, the day
+  of each end, and free General berths per class.
+- **Running late emails**: when the admin's live position shows the train 30+ minutes late,
+  passengers who haven't boarded yet are emailed, and again each time it grows by 30 minutes.
+- **Waitlist chance**: availability and tickets show the chance of confirmation (High / Medium /
+  Low with a percentage), from the last 90 days of this train and class, or a rule of thumb.
+- **Customers (admin)**: GET /admin/customers, /admin/customers/{id}/bookings, POST /block and
+  /unblock. Blocked customers are logged out everywhere and can't log in or book.
+- **Audit log (admin)**: GET /admin/audit. Records log-ins, trains, stops, fares, coaches, quotas,
+  run cancellations, reschedules, live positions, imports and customer blocks.
+- **Rate limits** per client (RATE_LIMIT=false to switch off): log-ins 20/min, sign-up 10/min,
+  PNR status 20/min, ticket checks and payments 30/min, timetables and running status 120/min.
+  Over the limit: 429 with Retry-After.
+
 ## v1.10.0 — 9 Nov 2026
 Safer seating, boarding help, and importing trains in bulk. Use with frontend v1.15.0. New columns
 on passenger (needs_assistance, helper, companion_id, companion_note, near_women) and an index on

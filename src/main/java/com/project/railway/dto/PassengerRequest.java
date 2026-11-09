@@ -21,4 +21,8 @@ public class PassengerRequest {
 	private boolean needsAssistance;
 	/** Adult (18-59): volunteers to help a senior traveller who asked for boarding assistance */
 	private boolean helper;
+	/** Divyangjan: travels on a disability concession (needs the concession card number) */
+	private boolean divyang;
+	/** Disability concession card number; only its last 4 characters are kept */
+	private String concessionCard;
 }

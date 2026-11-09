@@ -42,4 +42,8 @@ public class TrainRun {
 	private String note;
 	@Column(name = "updated_at")
 	private LocalDateTime updatedAt;
+
+	/** Delay (minutes) passengers were last emailed about; they're emailed again when it grows by 30 */
+	@Column(name = "late_notified_minutes")
+	private Integer lateNotifiedMinutes;
 }

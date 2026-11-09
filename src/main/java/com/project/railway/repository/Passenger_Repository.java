@@ -81,4 +81,44 @@ public interface Passenger_Repository extends JpaRepository<Passenger, Long> {
 			+ " and p.status = 'CNF' and p.companionId is null and (p.needsAssistance = true or p.helper = true)"
 			+ " order by p.id")
 	List<Passenger> findUnmatchedCompanionsForUpdate(@Param("train") int train, @Param("date") LocalDate date);
+
+	/* ------------------------------------------------------------------ RAC */
+
+	/** RAC passengers of one class on a train run, lowest RAC number first, locked */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select p from Passenger p join fetch p.booking b where b.trainNumber = :train and b.journeyDate = :date"
+			+ " and b.seatType = :type and p.status = 'RAC' order by p.racNumber asc, p.id asc")
+	List<Passenger> findRacForUpdate(@Param("train") int train, @Param("date") LocalDate date, @Param("type") String type);
+
+	/** Stretches [from_stop, to_stop] of the RAC passengers of a class, to see how many more fit */
+	@Query("select b.fromStop, b.toStop from Passenger p join p.booking b where b.trainNumber = :train"
+			+ " and b.journeyDate = :date and b.seatType = :type and p.status = 'RAC'")
+	List<Object[]> findRacStretches(@Param("train") int train, @Param("date") LocalDate date, @Param("type") String type);
+
+	/** RAC passengers ahead of RAC number :n */
+	@Query("select count(p) from Passenger p join p.booking b where b.trainNumber = :train and b.journeyDate = :date"
+			+ " and b.seatType = :type and p.status = 'RAC' and p.racNumber < :n")
+	long countRacBefore(@Param("train") int train, @Param("date") LocalDate date, @Param("type") String type,
+			@Param("n") int n);
+
+	/** Classes of a train run with someone on RAC or the waitlist */
+	@Query("select distinct b.seatType from Passenger p join p.booking b where b.trainNumber = :train"
+			+ " and b.journeyDate = :date and p.status in ('WL', 'RAC')")
+	List<String> findClassesWithRacOrWaitlist(@Param("train") int train, @Param("date") LocalDate date);
+
+	/** RAC passengers placed on one RAC berth at the chart */
+	@Query("select p from Passenger p join p.booking b where p.seat.id = :seat and b.journeyDate = :date"
+			+ " and p.status = 'RAC' order by p.racNumber asc, p.id asc")
+	List<Passenger> findRacOnBerth(@Param("seat") long seatId, @Param("date") LocalDate date);
+
+	/**
+	 * Waitlist history of a train and class: rows [waitlisted passengers, of whom confirmed or on RAC by the
+	 * chart] for WL numbers between lo and hi on past runs.
+	 */
+	@Query("select count(p), sum(case when p.status in ('CNF', 'RAC') or (p.status = 'CAN' and p.cancelReason = 'USER'"
+			+ " and p.coachNumber is not null) then 1 else 0 end) from Passenger p join p.booking b"
+			+ " where b.trainNumber = :train and b.seatType = :type and b.journeyDate between :from and :to"
+			+ " and p.wlNumber between :lo and :hi")
+	List<Object[]> waitlistHistory(@Param("train") int train, @Param("type") String type, @Param("from") LocalDate from,
+			@Param("to") LocalDate to, @Param("lo") int lo, @Param("hi") int hi);
 }

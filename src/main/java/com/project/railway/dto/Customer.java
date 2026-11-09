@@ -49,6 +49,10 @@ public class Customer {
 	@Column(name = "token_version", columnDefinition = "int default 0")
 	private Integer tokenVersion;
 	private boolean status;
+	/** Blocked by an admin: can't log in or book; existing log-ins end */
+	private Boolean blocked;
+	@Column(name = "blocked_reason", length = 200)
+	private String blockedReason;
 	private String role;
 	private int age;
 

@@ -154,6 +154,9 @@ public  class Customer_Service_Implementation implements Customer_Service {
 			return reply(structure, HttpStatus.BAD_REQUEST,
 					"Email not verified. Enter the OTP we emailed you, or request a new one.");
 		}
+		if (Boolean.TRUE.equals(customer.getBlocked())) {
+			return reply(structure, HttpStatus.FORBIDDEN, "Your account is blocked. Contact support.");
+		}
 		String token = jwtUtil.generateToken_for_customer(customer,
 				new java.util.Date(System.currentTimeMillis() + JwtUtil.LOGIN_TTL_MS));
 		structure.setData(token);

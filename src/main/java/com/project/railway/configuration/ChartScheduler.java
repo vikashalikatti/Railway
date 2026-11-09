@@ -41,6 +41,8 @@ public class ChartScheduler {
 	private ChartRun_Repository chartRepository;
 	@Autowired
 	private BookingEngine engine;
+	@Autowired
+	private com.project.railway.service.VikalpService vikalp;
 
 	@Scheduled(fixedDelay = 60_000, initialDelay = 20_000)
 	public void prepareDueCharts() {
@@ -73,6 +75,7 @@ public class ChartScheduler {
 					}
 					if (stage < ChartRun.FIRST && engine.prepareFirstChart(trainNumber, date)) {
 						log.info("First chart prepared for train {} on {}", trainNumber, date);
+						vikalp.process(trainNumber, date); // waitlisted Vikalp bookings: try another train
 						stage = ChartRun.FIRST;
 					}
 					if (stage < ChartRun.FINAL && !now.isBefore(TatkalRules.finalChartAt(departure))

@@ -16,5 +16,19 @@ import com.project.railway.helper.Seat_type;
  */
 public record JourneyPlan(int trainNumber, String trainName, Seat_type seatType, LocalDate date, int fromStop,
 		int toStop, String fromStation, String toStation, double distanceKm, double farePerPassenger, Quota quota,
-		boolean anyQuota, boolean waitlist, String closedReason) {
+		boolean anyQuota, boolean waitlist, String closedReason, LocalDate boardingDate) {
+
+	/** date is the day the train leaves its first station; boardingDate the day the passenger gets on */
+	public JourneyPlan(int trainNumber, String trainName, Seat_type seatType, LocalDate date, int fromStop, int toStop,
+			String fromStation, String toStation, double distanceKm, double farePerPassenger, Quota quota,
+			boolean anyQuota, boolean waitlist, String closedReason) {
+		this(trainNumber, trainName, seatType, date, fromStop, toStop, fromStation, toStation, distanceKm,
+				farePerPassenger, quota, anyQuota, waitlist, closedReason, date);
+	}
+
+	/** The same journey, selling seats of another quota */
+	public JourneyPlan withQuota(Quota q, boolean any) {
+		return new JourneyPlan(trainNumber, trainName, seatType, date, fromStop, toStop, fromStation, toStation,
+				distanceKm, farePerPassenger, q, any, waitlist, closedReason, boardingDate);
+	}
 }

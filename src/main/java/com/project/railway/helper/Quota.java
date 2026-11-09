@@ -21,7 +21,15 @@ public enum Quota {
 	/** Ladies: women, and children under 12 travelling with them */
 	LD("Ladies", "", false, 6),
 	/** Senior citizen / lower berth: men 60+ and women 45+, lower berths only */
-	SS("Senior citizen", "", false, 2);
+	SS("Senior citizen", "", false, 2),
+	/** Divyangjan (persons with disability): one passenger with a concession card, and one escort; lower berths */
+	PH("Divyangjan", "", false, 2),
+	/**
+	 * RAC berths: side-lower berths shared by two RAC passengers. Never booked directly: passengers
+	 * get RAC when the class is full (General and Tatkal), and RAC passengers are placed on these
+	 * berths when the chart is prepared.
+	 */
+	RC("RAC berth", "", false, 0);
 
 	public final String label;
 	/** Prefix of the waitlist number on a ticket ("WL 3", "TQWL 3"); empty if this quota has no waitlist */
@@ -48,9 +56,21 @@ public enum Quota {
 		return this == TQ || this == PT;
 	}
 
+	/** Can passengers choose this quota when booking? (RAC berths can't be booked directly) */
+	public boolean bookable() {
+		return this != RC;
+	}
+
+	/** Do passengers who find no confirmed seat in this quota get RAC (before the waitlist)? */
+	public boolean hasRac() {
+		return this == GN || this == TQ;
+	}
+
 	/** Does this class sell seats in this quota? */
 	public boolean offeredIn(Seat_type type) {
 		switch (this) {
+		case RC:
+			return RacRules.hasRac(type);
 		case TQ:
 		case PT:
 			return type != Seat_type.AC1_TIER; // no Tatkal in AC First Class
@@ -69,8 +89,11 @@ public enum Quota {
 		return this == GN ? type.name() : name() + ":" + CoachLayout.shortCode(type);
 	}
 
-	/** One passenger as far as quota rules care */
-	public record Traveller(int age, String gender) {
+	/** One passenger as far as quota rules care. divyang: has a disability concession card. */
+	public record Traveller(int age, String gender, boolean divyang) {
+		public Traveller(int age, String gender) {
+			this(age, gender, false);
+		}
 	}
 
 	/** Why these passengers can't book in this quota, or null if they can */
@@ -90,6 +113,15 @@ public enum Quota {
 			}
 			return adultWoman ? null : "Ladies quota needs at least one woman aged 12 or over.";
 		}
+		case PH: {
+			long divyang = travellers.stream().filter(Traveller::divyang).count();
+			if (divyang == 0) {
+				return "Divyangjan quota needs a passenger with a disability concession card.";
+			}
+			return null; // up to 2: the passenger with the card and an escort (or two card holders)
+		}
+		case RC:
+			return "RAC berths can't be booked directly. Book in General quota: RAC is given when the class is full.";
 		case SS:
 			for (Traveller t : travellers) {
 				boolean female = "FEMALE".equalsIgnoreCase(t.gender());

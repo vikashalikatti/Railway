@@ -32,7 +32,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *      "trains":[{"number","name","type","days":["monday",…],"classes":["SL","3A"],
  *                 "coaches":{"SL":6,"3A":2},"stops":[{"code","name","arrival","departure","km"}]}]}
  *  3. A CSV file, one row per stop (train columns only needed on a train's first row):
- *     train_number,train_name,train_type,running_days,classes,station_code,station_name,arrival,departure,km
+ *     train_number,train_name,train_type,running_days,classes,station_code,station_name,arrival,departure,km[,day]
+ *  km is from the first station; day (1, 2, 3…) is optional and worked out from the times when left out
  *
  * Problems with one train never stop the others: the train is left out and the problem is listed.
  */
@@ -51,8 +52,11 @@ public final class TrainImport {
 	public record ImportStation(String code, String name, String city, String state, Double latitude, Double longitude) {
 	}
 
-	/** km may be null (estimated from station positions) */
-	public record ImportStop(String code, String name, LocalTime arrival, LocalTime departure, Double km) {
+	/** km from the first station, may be null (estimated from station positions); day may be null (from the times) */
+	public record ImportStop(String code, String name, LocalTime arrival, LocalTime departure, Double km, Integer day) {
+		public ImportStop(String code, String name, LocalTime arrival, LocalTime departure, Double km) {
+			this(code, name, arrival, departure, km, null);
+		}
 	}
 
 	/** coaches: null means "use the import's default count for each of the classes" */
@@ -80,7 +84,7 @@ public final class TrainImport {
 			List<ImportStop> stops = new ArrayList<>();
 			for (JsonNode s : t.get(4)) {
 				stops.add(new ImportStop(s.get(0).asText(), null, LocalTime.parse(s.get(1).asText()),
-						LocalTime.parse(s.get(2).asText()), s.get(3).asDouble()));
+						LocalTime.parse(s.get(2).asText()), s.get(3).asDouble(), s.size() > 4 ? s.get(4).asInt() : null));
 			}
 			add(trains, problems, new ImportTrain(t.get(0).asInt(), t.get(1).asText(), t.get(2).asText(), ALL_DAYS,
 					classes, null, stops));
@@ -127,7 +131,7 @@ public final class TrainImport {
 					n++;
 					stops.add(new ImportStop(code(s.path("code").asText("")), blankToNull(clean(s.path("name").asText(""), 80)),
 							time(s.get("arrival"), "stop " + n + " arrival"), time(s.get("departure"), "stop " + n + " departure"),
-							s.hasNonNull("km") ? s.get("km").asDouble() : null));
+							s.hasNonNull("km") ? s.get("km").asDouble() : null, s.hasNonNull("day") ? s.get("day").asInt() : null));
 				}
 				List<String> days = new ArrayList<>();
 				t.path("days").forEach(d -> days.add(d.asText()));
@@ -185,9 +189,11 @@ public final class TrainImport {
 				h[2] = first(h[2], get(f, col, "running_days"));
 				h[3] = first(h[3], get(f, col, "classes"));
 				String km = get(f, col, "km");
+				String day = get(f, col, "day");
 				stops.computeIfAbsent(number, k -> new ArrayList<>()).add(new ImportStop(code(get(f, col, "station_code")),
 						blankToNull(clean(get(f, col, "station_name"), 80)), time(get(f, col, "arrival"), "arrival"),
-						time(get(f, col, "departure"), "departure"), km.isBlank() ? null : Double.valueOf(km.trim())));
+						time(get(f, col, "departure"), "departure"), km.isBlank() ? null : Double.valueOf(km.trim()),
+						day.isBlank() ? null : Integer.valueOf(day.trim())));
 			} catch (IllegalArgumentException e) {
 				problem(problems, "Row " + row + ": " + e.getMessage());
 				if (number != null) {
@@ -253,6 +259,9 @@ public final class TrainImport {
 			if ((i == 0 ? s.departure() : s.arrival()) == null) {
 				return "stop " + (i + 1) + " (" + s.code() + ") needs a time";
 			}
+			if (s.day() != null && (s.day() < 1 || s.day() > 7)) {
+				return "stop " + (i + 1) + " (" + s.code() + "): day must be 1 to 7";
+			}
 			if (s.km() != null) {
 				if (s.km() < 0 || (lastKm != null && s.km() <= lastKm && i > 0)) {
 					return "km must go up along the route (stop " + (i + 1) + ", " + s.code() + ")";
@@ -276,7 +285,7 @@ public final class TrainImport {
 			ImportStop s = t.stops().get(i);
 			LocalTime arr = s.arrival() != null ? s.arrival() : s.departure();
 			LocalTime dep = s.departure() != null ? s.departure() : s.arrival();
-			stops.add(new ImportStop(s.code(), s.name(), arr, dep, i == 0 ? Double.valueOf(0) : s.km()));
+			stops.add(new ImportStop(s.code(), s.name(), arr, dep, i == 0 ? Double.valueOf(0) : s.km(), s.day()));
 		}
 		String type = t.type() == null || t.type().isBlank() ? "Express" : t.type();
 		return new ImportTrain(t.number(), t.name(), type, t.days(), t.classes(), t.coaches(), stops);

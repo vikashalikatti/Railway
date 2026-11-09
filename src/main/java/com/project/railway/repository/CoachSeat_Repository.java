@@ -34,7 +34,11 @@ public interface CoachSeat_Repository extends JpaRepository<CoachSeat, Long> {
 	/** Only coaches running on the journey date (extra coaches for rush days, removed coaches) */
 	String COACH_RUNS = " AND (c.valid_from IS NULL OR c.valid_from <= :date) AND (c.valid_to IS NULL OR c.valid_to >= :date) ";
 
-	String IN_QUOTA = " AND (:anyQuota = TRUE OR COALESCE(cs.quota, 'GN') = :quota) ";
+	/**
+	 * Seats of the passenger's quota; after the first chart (anyQuota) seats of every quota except RAC berths,
+	 * which are kept for RAC passengers until they are placed (ask for quota RC to sell what's left of them).
+	 */
+	String IN_QUOTA = " AND ((:anyQuota = TRUE AND COALESCE(cs.quota, 'GN') <> 'RC') OR COALESCE(cs.quota, 'GN') = :quota) ";
 
 	/** Free seats for a segment, per coach of one class. Rows: [coach_id, free_seats]. No locks. */
 	@Query(value = "SELECT cs.coach_id, COUNT(*) AS free_seats FROM coach_seat cs"
@@ -76,6 +80,12 @@ public interface CoachSeat_Repository extends JpaRepository<CoachSeat, Long> {
 			nativeQuery = true)
 	long countSeatsInQuotaOn(@Param("train") int train, @Param("type") String type, @Param("quota") String quota,
 			@Param("date") LocalDate date);
+
+	/** RAC berths of a class in the coaches running on a date, coach by coach */
+	@Query("select s from CoachSeat s join fetch s.coach c where c.train.trainNumber = :train and c.coachType = :type"
+			+ " and s.quota = 'RC' and (c.validFrom is null or c.validFrom <= :date) and (c.validTo is null or c.validTo >= :date)"
+			+ " order by c.id, s.seatNumber")
+	List<CoachSeat> findRacBerthsOn(@Param("train") int train, @Param("type") String type, @Param("date") LocalDate date);
 
 	/** Ids of every seat in these coaches */
 	@Query("select s.id from CoachSeat s where s.coach.id in :coachIds")

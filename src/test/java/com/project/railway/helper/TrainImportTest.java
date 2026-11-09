@@ -104,6 +104,10 @@ class TrainImportTest {
 			TrainImport.ImportTrain k = b.trains().stream().filter(t -> t.number() == 12627).findFirst().orElseThrow();
 			assertEquals("SBC", k.stops().get(0).code());
 			assertEquals("NDLS", k.stops().get(k.stops().size() - 1).code());
+			// Karnataka Express reaches New Delhi on Day 3, and the times agree with the day numbers
+			assertEquals(Integer.valueOf(3), k.stops().get(k.stops().size() - 1).day());
+			var tl = StopDays.timeline(k.stops().stream().map(s -> new StopDays.Stop(s.arrival(), s.departure(), null)).toList());
+			assertEquals(3, tl.day(k.stops().size() - 1));
 			for (TrainImport.ImportTrain t : b.trains()) {
 				assertNull(TrainImport.problem(t), "train " + t.number());
 			}

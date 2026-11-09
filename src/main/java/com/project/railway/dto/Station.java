@@ -32,6 +32,9 @@ public class Station {
 	@jakarta.persistence.Column(name = "station_code", length = 6)
 	private String stationCode;
 	private LocalTime departureTime;
+	/** Day the train reaches this stop (1 = the day it leaves its first station); empty = worked out from the times */
+	@jakarta.persistence.Column(name = "day_number")
+	private Integer day;
 	private LocalTime arrivalTime;
 	private double km;
 	private double price;

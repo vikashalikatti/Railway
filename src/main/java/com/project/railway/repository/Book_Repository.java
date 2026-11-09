@@ -12,6 +12,8 @@ public interface Book_Repository extends JpaRepository<Booking, Long> {
 
 	List<Booking> findByCustomerOrderByBookedAtDesc(Customer customer);
 
+	long countByCustomer(Customer customer);
+
 	boolean existsByTrainNumber(int trainNumber);
 
 	/** Any ticket for today or later that isn't cancelled */

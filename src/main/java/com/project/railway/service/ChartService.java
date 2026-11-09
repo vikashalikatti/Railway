@@ -160,6 +160,8 @@ public class ChartService {
 			for (Passenger p : passengerRepository.findForChart(train.getTrainNumber(), run.date())) {
 				var b = p.getBooking();
 				String status = Passenger.CONFIRMED.equals(p.getStatus()) ? "CNF"
+						: Passenger.RAC.equals(p.getStatus()) ? "RAC " + (p.getRacNumber() == null ? "" : p.getRacNumber())
+						: Passenger.NO_BERTH.equals(p.getStatus()) ? "No berth"
 						: Passenger.WAITLISTED.equals(p.getStatus())
 								? Quota.parse(b.getQuota()).wlPrefix + " " + p.getWlNumber()
 								: "Not confirmed at charting";

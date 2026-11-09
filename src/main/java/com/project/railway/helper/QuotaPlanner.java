@@ -26,27 +26,37 @@ public final class QuotaPlanner {
 	public record SeatRef(long id, int coachId, int seatNumber, String berthType) {
 	}
 
-	/** Percent of a class's seats per quota (General gets the rest) */
-	public record Shares(int tatkal, int premium, int ladies, int senior) {
+	/**
+	 * Percent of a class's seats per quota (General gets the rest), plus RAC berths per coach and the
+	 * Divyangjan share.
+	 */
+	public record Shares(int tatkal, int premium, int ladies, int senior, int racBerthsPerCoach, int divyang) {
+
+		/** Without RAC berths or a Divyangjan share (as before those existed) */
+		public Shares(int tatkal, int premium, int ladies, int senior) {
+			this(tatkal, premium, ladies, senior, 0, 0);
+		}
 
 		public int total() {
-			return tatkal + premium + ladies + senior;
+			return tatkal + premium + ladies + senior + divyang;
 		}
 
 		/** Sensible starting split per class */
 		public static Shares defaults(Seat_type type) {
+			int rac = RacRules.defaultBerthsPerCoach(type);
+			int ph = CoachLayout.hasBerths(type) && type != Seat_type.AC1_TIER ? 2 : 0;
 			if (type == Seat_type.AC1_TIER) {
-				return new Shares(0, 0, 5, 10);
+				return new Shares(0, 0, 5, 10, rac, 0);
 			}
 			if (!CoachLayout.hasBerths(type)) {
-				return new Shares(30, 10, 5, 0); // chair cars and second sitting: no lower-berth quota
+				return new Shares(30, 10, 5, 0, rac, 0); // chair cars and second sitting: no lower-berth quotas
 			}
-			return new Shares(30, 10, 5, 8);
+			return new Shares(30, 10, 5, 8, rac, ph);
 		}
 
 		/** Problem with these numbers for this class, or null */
 		public String problem(Seat_type type) {
-			if (tatkal < 0 || premium < 0 || ladies < 0 || senior < 0) {
+			if (tatkal < 0 || premium < 0 || ladies < 0 || senior < 0 || racBerthsPerCoach < 0 || divyang < 0) {
 				return "Quota shares can't be negative";
 			}
 			if (total() > 90) {
@@ -57,6 +67,12 @@ public final class QuotaPlanner {
 			}
 			if (senior > 0 && !Quota.SS.offeredIn(type)) {
 				return "Senior citizen quota needs lower berths, which " + CoachLayout.shortCode(type) + " doesn't have";
+			}
+			if (racBerthsPerCoach > 0 && !RacRules.hasRac(type)) {
+				return CoachLayout.shortCode(type) + " has no side-lower berths for RAC";
+			}
+			if (racBerthsPerCoach > RacRules.maxBerthsPerCoach(type)) {
+				return "At most " + RacRules.maxBerthsPerCoach(type) + " RAC berths per " + CoachLayout.shortCode(type) + " coach";
 			}
 			return null;
 		}
@@ -69,6 +85,36 @@ public final class QuotaPlanner {
 		if (n == 0) {
 			return out;
 		}
+		// RAC: side-lower berths, the last ones of each coach
+		if (shares.racBerthsPerCoach() > 0) {
+			Map<Integer, List<SeatRef>> sideLowers = new LinkedHashMap<>();
+			for (SeatRef s : seats) {
+				if (CoachLayout.SIDE_LOWER.equals(s.berthType())) {
+					sideLowers.computeIfAbsent(s.coachId(), k -> new ArrayList<>()).add(s);
+				}
+			}
+			for (List<SeatRef> coach : sideLowers.values()) {
+				for (int i = 0; i < Math.min(shares.racBerthsPerCoach(), coach.size()); i++) {
+					out.put(coach.get(coach.size() - 1 - i).id(), Quota.RC);
+				}
+			}
+		}
+
+		// Divyangjan: lower berths (any seat in sitting classes), from the first coach, at least 2 when there's a share
+		if (shares.divyang() > 0) {
+			int left = Math.max(2, (n * shares.divyang() + 99) / 100);
+			boolean berths = seats.stream().anyMatch(s -> CoachLayout.LOWER.equals(s.berthType()));
+			for (SeatRef s : seats) {
+				if (left == 0) {
+					break;
+				}
+				if (out.get(s.id()) == Quota.GN && (!berths || CoachLayout.LOWER.equals(s.berthType()))) {
+					out.put(s.id(), Quota.PH);
+					left--;
+				}
+			}
+		}
+
 		Map<Quota, Integer> want = new EnumMap<>(Quota.class);
 		want.put(Quota.SS, n * shares.senior() / 100);
 		want.put(Quota.LD, n * shares.ladies() / 100);
@@ -78,7 +124,7 @@ public final class QuotaPlanner {
 		// Senior citizen: lower berths, round-robin over coaches
 		Map<Integer, List<SeatRef>> lowersByCoach = new LinkedHashMap<>();
 		for (SeatRef s : seats) {
-			if (CoachLayout.isLower(s.berthType())) {
+			if (CoachLayout.isLower(s.berthType()) && out.get(s.id()) == Quota.GN) {
 				lowersByCoach.computeIfAbsent(s.coachId(), k -> new ArrayList<>()).add(s);
 			}
 		}

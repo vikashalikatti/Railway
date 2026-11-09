@@ -248,3 +248,20 @@ Trains are saved 20 per transaction; seats are written 500 rows per INSERT with 
 split. If a group fails, its trains are retried one by one so only the bad train is left out.
 CSV columns: train_number,train_name,train_type,running_days,classes,station_code,station_name,
 arrival,departure,km (train columns only on a train's first row; km may be empty).
+
+## RAC (backend v1.11.0)
+- RAC berths are seats with quota RC (side lowers, the last ones of each coach). They are never sold
+  as confirmed berths before the chart: IN_QUOTA leaves them out, even after the chart, until RAC
+  passengers have been placed; what's left is then sold to current bookings (quota RC).
+- RAC room for a stretch = 2 x RAC berths - the most RAC passengers on any stop of that stretch.
+- Lock order: payment -> seats -> RAC counter ("RAC:SL") -> waitlist counter -> passengers.
+- Promotion (cancellation, extra coaches, first chart): (a) RAC -> berth, (b) WL -> berth,
+  (c) WL -> RAC. At the first chart RAC passengers still without a berth are placed on RAC berths
+  in pairs (RacRules.place); the pair's stretch is one seat_occupancy row held by the first of them,
+  re-shaped when one cancels.
+
+## Refunds and payments (backend v1.11.0)
+- RefundRules decides each cancelled passenger's refund (passenger.refund, cancellation_charge);
+  PaymentService.refund adds it to booking.refund_amount, the payment's refunded amount and a
+  refund_entry row, in the same transaction as the cancellation.
+- A booking locks its payment row first; the payment must be PAID and at least the total fare.

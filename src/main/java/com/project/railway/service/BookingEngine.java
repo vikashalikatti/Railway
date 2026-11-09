@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -26,12 +27,16 @@ import com.project.railway.dto.CoachSeat;
 import com.project.railway.dto.Customer;
 import com.project.railway.dto.Passenger;
 import com.project.railway.dto.PassengerRequest;
+import com.project.railway.dto.Payment;
+import com.project.railway.dto.Train;
 import com.project.railway.dto.SeatOccupancy;
 import com.project.railway.dto.WaitlistCounter;
 import com.project.railway.helper.BookingException;
 import com.project.railway.helper.CoachLayout;
 import com.project.railway.helper.CompanionRules;
 import com.project.railway.helper.Quota;
+import com.project.railway.helper.RacRules;
+import com.project.railway.helper.RefundRules;
 import com.project.railway.helper.TravelRules;
 import com.project.railway.helper.SeatPicker;
 import com.project.railway.helper.Seat_type;
@@ -41,6 +46,7 @@ import com.project.railway.repository.CoachSeat_Repository;
 import com.project.railway.repository.Customer_Repository;
 import com.project.railway.repository.Passenger_Repository;
 import com.project.railway.repository.SeatOccupancy_Repository;
+import com.project.railway.repository.Train_Repository;
 import com.project.railway.repository.WaitlistCounter_Repository;
 
 /**
@@ -53,7 +59,7 @@ import com.project.railway.repository.WaitlistCounter_Repository;
  *   Nobody can add a SeatOccupancy for a seat without holding that seat's lock.
  * - The waitlist counter row is locked (FOR UPDATE) before anyone joins or leaves the
  *   waitlist, so WL numbers and promotions happen strictly in order.
- * - Lock order is always: seats -> waitlist counter -> waitlisted passengers.
+ * - Lock order is always: payment -> seats -> RAC counter -> waitlist counter -> waitlisted passengers.
  *
  * Callers should use BookingService, which validates input and retries on deadlocks.
  */
@@ -83,12 +89,30 @@ public class BookingEngine {
 	private ChartRun_Repository chartRepository;
 	@Autowired
 	private TicketMailer mailer;
+	@Autowired
+	private PaymentService payments;
+	@Autowired
+	private Train_Repository trainRepository;
 
 	/* ------------------------------------------------------------------ booking */
 
-	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 15)
+	/** Same as below, without a payment or Vikalp (tests, admin tools) */
 	public Booking book(int customerId, JourneyPlan plan, List<PassengerRequest> requests) {
+		return book(customerId, plan, requests, null, false);
+	}
+
+	/**
+	 * Books seats for the passengers. Lock order: payment -> seats -> RAC counter -> waitlist counter -> passengers.
+	 * paymentId: a PAID test payment of this customer (null when payments are switched off).
+	 * vikalp: if still waitlisted at the chart, move to another train with seats.
+	 */
+	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 15)
+	public Booking book(int customerId, JourneyPlan plan, List<PassengerRequest> requests, String paymentId,
+			boolean vikalp) {
 		Customer customer = customerRepository.getReferenceById(customerId);
+
+		// 0. The payment (one payment pays for one booking)
+		Payment payment = paymentId == null ? null : payments.lockForBooking(paymentId, customerId);
 
 		// Infants, and children 5-11 who chose no berth, travel with the group without a seat
 		long needSeats = requests.stream()
@@ -109,7 +133,11 @@ public class BookingEngine {
 		Map<String, Integer> near = anySeeks == 0 ? Map.of() : nearFlags(plan);
 
 		// 1. Lock free seats for this segment (may lock a few more than needed, see SLACK)
-		List<CoachSeat> locked = lockFreeSeats(plan, (int) needSeats, true, anySeeks, near);
+		List<CoachSeat> locked = new ArrayList<>(lockFreeSeats(plan, (int) needSeats, true, anySeeks, near));
+		if (plan.anyQuota() && locked.size() < needSeats && RacRules.hasRac(plan.seatType())) {
+			// after the chart, RAC berths that no RAC passenger needed are sold too
+			locked.addAll(lockFreeSeats(plan.withQuota(Quota.RC, false), (int) needSeats - locked.size(), true));
+		}
 
 		// 2. Decide who sits where
 		Map<Long, CoachSeat> seatsById = locked.stream()
@@ -128,9 +156,11 @@ public class BookingEngine {
 		booking.setFromStop(plan.fromStop());
 		booking.setToStop(plan.toStop());
 		booking.setJourneyDate(plan.date());
+		booking.setBoardingDate(plan.boardingDate());
 		booking.setSeatType(plan.seatType().name());
 		booking.setQuota(plan.quota().name());
 		booking.setDistanceKm(plan.distanceKm());
+		booking.setVikalp(vikalp ? Boolean.TRUE : null);
 		double total = 0;
 		booking.setBookedAt(LocalDateTime.now(IST));
 
@@ -152,6 +182,10 @@ public class BookingEngine {
 			p.setExtrasFare(TravelRules.extras(meal, Boolean.TRUE.equals(p.getBedroll()), plan.seatType()));
 			p.setNeedsAssistance(r.isNeedsAssistance());
 			p.setHelper(r.isHelper());
+			if (r.isDivyang()) {
+				p.setDivyang(true);
+				p.setConcessionCard(maskCard(r.getConcessionCard()));
+			}
 			total += p.getFare() + p.getExtrasFare();
 			SeatPicker.Seat seat = assigned.get(i);
 			if (noBerth) {
@@ -168,7 +202,7 @@ public class BookingEngine {
 			booking.setTotalFare(total);
 		}
 
-		// 4. Anyone without a seat joins this quota's waitlist (counter row locked -> numbers never repeat)
+		// 4. No seat: RAC first (General and Tatkal, classes with RAC berths), then this quota's waitlist
 		if (!waiting.isEmpty()) {
 			int seated = (int) needSeats - waiting.size();
 			if (!plan.waitlist()) {
@@ -177,6 +211,19 @@ public class BookingEngine {
 						? left + ", and the waitlist closed when the chart was prepared."
 						: left + " in " + plan.quota().label + " quota, which has no waitlist. Try General quota.");
 			}
+			if (plan.quota().hasRac() && RacRules.hasRac(plan.seatType())) {
+				WaitlistCounter rac = lockCounter(plan.trainNumber(), plan.date(), racKey(plan.seatType()));
+				int room = racRoom(plan.trainNumber(), plan.date(), plan.seatType(), plan.fromStop(), plan.toStop());
+				for (java.util.Iterator<Passenger> it = waiting.iterator(); room > 0 && it.hasNext(); room--) {
+					Passenger p = it.next();
+					rac.setLastNumber(rac.getLastNumber() + 1);
+					p.setStatus(Passenger.RAC);
+					p.setRacNumber(rac.getLastNumber());
+					it.remove();
+				}
+			}
+		}
+		if (!waiting.isEmpty()) {
 			String key = plan.quota().counterKey(plan.seatType());
 			WaitlistCounter counter = lockCounter(plan.trainNumber(), plan.date(), key);
 			long alreadyWaiting = passengerRepository.countWaitlisted(plan.trainNumber(), plan.date(),
@@ -193,7 +240,15 @@ public class BookingEngine {
 		}
 
 		booking.refreshStatus();
+		if (payment != null && payment.getAmount() + 0.5 < total) {
+			throw new BookingException(HttpStatus.PAYMENT_REQUIRED, String.format(Locale.ENGLISH,
+					"The fare is now ₹%,.0f but ₹%,.0f was paid. Pay again; the first payment is refunded automatically.",
+					total, payment.getAmount()));
+		}
 		bookingRepository.save(booking); // cascades to passengers
+		if (payment != null) {
+			payments.markUsed(payment, booking);
+		}
 
 		// 5. Mark the seats taken for this segment
 		List<SeatOccupancy> occupancies = new ArrayList<>();
@@ -221,8 +276,9 @@ public class BookingEngine {
 		if (booking.getCustomer().getId() != customerId) {
 			throw new BookingException(HttpStatus.NOT_FOUND, "No booking with PNR " + pnr + ".");
 		}
-		if (booking.getJourneyDate().isBefore(LocalDate.now(IST))) {
-			throw new BookingException(HttpStatus.BAD_REQUEST, "This journey date has passed, so it can't be cancelled.");
+		long minutesBefore = minutesBeforeDeparture(booking);
+		if (minutesBefore < -24 * 60) {
+			throw new BookingException(HttpStatus.BAD_REQUEST, "This journey is over, so it can't be cancelled.");
 		}
 
 		List<Passenger> targets = booking.getPassengers().stream()
@@ -235,104 +291,201 @@ public class BookingEngine {
 
 		List<Passenger> confirmed = targets.stream().filter(p -> Passenger.CONFIRMED.equals(p.getStatus()))
 				.collect(Collectors.toList());
+		List<Passenger> racPlaced = targets.stream()
+				.filter(p -> Passenger.RAC.equals(p.getStatus()) && p.getSeat() != null).collect(Collectors.toList());
+		boolean freesRoom = !confirmed.isEmpty() || targets.stream().anyMatch(p -> Passenger.RAC.equals(p.getStatus()));
 
-		// Lock order: seats first, then the waitlist counter (same order as booking)
+		// Lock order: seats first, then the RAC counter, then the waitlist counter (same order as booking)
 		Set<Long> seatIds = confirmed.stream().map(p -> p.getSeat().getId()).collect(Collectors.toSet());
+		racPlaced.forEach(p -> seatIds.add(p.getSeat().getId()));
 		if (!seatIds.isEmpty()) {
 			coachSeatRepository.lockByIds(seatIds);
 		}
 		Seat_type cancelType = Seat_type.valueOf(booking.getSeatType());
 		Quota quota = Quota.parse(booking.getQuota());
+		if (RacRules.hasRac(cancelType)) {
+			lockCounter(booking.getTrainNumber(), booking.getJourneyDate(), racKey(cancelType));
+		}
 		lockCounter(booking.getTrainNumber(), booking.getJourneyDate(), quota.counterKey(cancelType));
+		boolean charted = chartStage(booking.getTrainNumber(), booking.getJourneyDate()) >= ChartRun.FIRST;
 
 		if (!confirmed.isEmpty()) {
 			occupancyRepository
 					.deleteByPassengerIds(confirmed.stream().map(Passenger::getId).collect(Collectors.toList()));
 		}
+		Map<Long, String> before = new HashMap<>();
+		booking.getPassengers().forEach(p -> before.put(p.getId(), p.getStatus()));
 		boolean unlinked = false;
+		Set<CoachSeat> racBerths = new LinkedHashSet<>();
 		for (Passenger p : targets) {
+			if (p.getSeat() != null && Passenger.RAC.equals(p.getStatus())) {
+				racBerths.add(p.getSeat());
+			}
 			p.setStatus(Passenger.CANCELLED);
 			p.setCancelReason(Passenger.CANCELLED_BY_USER);
 			p.setSeat(null); // coach and seat number are kept on the passenger for the record
 			unlinked |= unlinkCompanion(p);
 		}
 		cancelOrphanedNoBerth(booking, Passenger.CANCELLED_BY_USER);
+
+		// Refunds by the cancellation rules, for everyone cancelled just now (children without a berth too)
+		double refund = 0;
+		for (Passenger p : booking.getPassengers()) {
+			String was = before.get(p.getId());
+			if (Passenger.CANCELLED.equals(p.getStatus()) && was != null && !Passenger.CANCELLED.equals(was)) {
+				RefundRules.Refund r = RefundRules.onCancel(held(was), quota, cancelType, p.getFare(), extras(p),
+						minutesBefore, charted);
+				p.setRefund(r.refund());
+				p.setCancellationCharge(r.charge());
+				refund += r.refund();
+			}
+		}
+		payments.refund(booking, refund, "Cancelled by you");
 		booking.refreshStatus();
 		bookingRepository.saveAndFlush(booking);
+		for (CoachSeat berth : racBerths) {
+			reshapeRacBerth(berth, booking.getTrainNumber(), booking.getJourneyDate(),
+					racPlaced.stream().map(Passenger::getId).toList());
+		}
 		mailer.sendAfterCommit(mailer.ticket(booking, TicketMailer.Event.CANCELLED));
 		if (unlinked) {
 			passengerRepository.flush();
 			matchCompanions(booking.getTrainNumber(), booking.getJourneyDate()); // the other one may find someone else
 		}
 
-		if (!confirmed.isEmpty()) {
-			// Before the chart a freed seat stays in its quota, so that quota's waitlist gets it.
-			// After the chart nobody is waiting any more.
-			if (quota.hasWaitlist) {
-				promoteWaitlist(booking.getTrainNumber(), booking.getJourneyDate(), cancelType, quota, false, true);
-			}
+		// Before the chart a freed berth goes to RAC first, then the waitlist; RAC room goes to the waitlist.
+		// After the chart nobody is waiting any more.
+		if (freesRoom && !charted && quota.hasWaitlist) {
+			promote(booking.getTrainNumber(), booking.getJourneyDate(), cancelType, quota, false, true);
 		}
 		return booking;
 	}
 
-	/**
-	 * Gives free seats to one quota's waitlisted passengers, lowest WL number first.
-	 * anyQuota: seats of every quota may be used (first chart). notify: email the passengers
-	 * who got a seat, once the transaction commits.
-	 * Caller must hold that quota's waitlist counter lock. Returns the bookings that changed.
-	 */
-	private Set<Booking> promoteWaitlist(int trainNumber, LocalDate date, Seat_type type, Quota quota,
-			boolean anyQuota, boolean notify) {
-		List<Passenger> waiting = passengerRepository.findWaitlistForUpdate(trainNumber, date, type.name(),
-				quota.name());
-		Set<Booking> touched = new LinkedHashSet<>();
-		for (Passenger p : waiting) {
-			Booking b = p.getBooking();
-			JourneyPlan plan = new JourneyPlan(trainNumber, b.getTrainName(), type, date, b.getFromStop(),
-					b.getToStop(), b.getFromStation(), b.getToStation(), b.getDistanceKm(), p.getFare(), quota,
-					anyQuota, false, null);
-			int berths = (int) b.getPassengers().stream().filter(x -> !Boolean.TRUE.equals(x.getNoBerth())
-					&& !Passenger.CANCELLED.equals(x.getStatus())).count();
-			int seeks = CompanionRules.seeks(p.getAge(), p.getGender(), Boolean.TRUE.equals(p.getNeedsAssistance()),
-					Boolean.TRUE.equals(p.getHelper()), berths);
-			Map<String, Integer> near = seeks == 0 ? Map.of() : nearFlags(plan);
-			// Never wait here: we hold the counter lock, and waiting could deadlock with a booking
-			List<CoachSeat> seats = lockFreeSeats(plan, 1, false, seeks, near);
-			if (seats.isEmpty()) {
-				continue; // nothing free for this passenger's segment; a later passenger may fit
+	/** What cancelling these passengers now would refund (nothing is changed) */
+	@Transactional(readOnly = true)
+	public List<RefundPreview> cancelPreview(long pnr, int customerId, List<Long> passengerIds) {
+		Booking booking = bookingRepository.findById(pnr)
+				.filter(b -> b.getCustomer().getId() == customerId)
+				.orElseThrow(() -> new BookingException(HttpStatus.NOT_FOUND, "No booking with PNR " + pnr + "."));
+		long minutesBefore = minutesBeforeDeparture(booking);
+		boolean charted = chartStage(booking.getTrainNumber(), booking.getJourneyDate()) >= ChartRun.FIRST;
+		Seat_type type = Seat_type.valueOf(booking.getSeatType());
+		Quota quota = Quota.parse(booking.getQuota());
+		List<RefundPreview> out = new ArrayList<>();
+		for (Passenger p : booking.getPassengers()) {
+			if (Passenger.CANCELLED.equals(p.getStatus())
+					|| !(passengerIds == null || passengerIds.isEmpty() || passengerIds.contains(p.getId()))) {
+				continue;
 			}
-			Map<Integer, SeatPicker.Seat> pick = SeatPicker.assign(
-					List.of(new SeatPicker.Traveller(0, p.getAge(), p.getBerthPreference(), seeks)),
-					toPickerSeats(seats, type, near));
-			SeatPicker.Seat picked = pick.get(0);
-			CoachSeat seat = seats.stream().filter(s -> s.getId() == picked.id()).findFirst().orElseThrow();
-			confirm(p, seat);
-			if ((seeks & picked.near() & SeatPicker.Near.WOMEN) != 0) {
-				p.setNearWomen(true);
-			}
-			occupancyRepository.saveAndFlush(occupancy(p, trainNumber, date, b.getFromStop(), b.getToStop()));
-			touched.add(b);
+			RefundRules.Refund r = RefundRules.onCancel(held(p.getStatus()), quota, type, p.getFare(), extras(p),
+					minutesBefore, charted);
+			out.add(new RefundPreview(p.getId(), p.getName(), p.getStatus(), r.paid(), r.charge(), r.refund(), r.rule()));
 		}
-		for (Booking b : touched) {
+		return out;
+	}
+
+	/** One passenger's refund if cancelled now */
+	public record RefundPreview(long passengerId, String name, String status, double paid, double charge, double refund,
+			String rule) {
+	}
+
+	/**
+	 * Moves RAC and waitlisted passengers of one quota up, in order:
+	 *  (a) RAC passengers get a free berth, lowest RAC number first
+	 *  (b) waitlisted passengers get a free berth, lowest WL number first
+	 *  (c) waitlisted passengers move into RAC while there's room
+	 * anyQuota: seats of every quota may be used (first chart). notify: email the passengers who moved up.
+	 * Caller must hold the class's RAC counter lock (if it has RAC) and this quota's waitlist counter lock.
+	 */
+	private void promote(int trainNumber, LocalDate date, Seat_type type, Quota quota, boolean anyQuota, boolean notify) {
+		Set<Booking> confirmed = new LinkedHashSet<>();
+		Set<Booking> toRac = new LinkedHashSet<>();
+		boolean rac = RacRules.hasRac(type) && quota.hasRac();
+		if (rac) {
+			for (Passenger p : passengerRepository.findRacForUpdate(trainNumber, date, type.name())) {
+				if (p.getSeat() == null && Quota.parse(p.getBooking().getQuota()) == quota
+						&& giveSeat(p, trainNumber, date, type, quota, anyQuota)) {
+					confirmed.add(p.getBooking());
+				}
+			}
+		}
+		List<Passenger> waiting = passengerRepository.findWaitlistForUpdate(trainNumber, date, type.name(), quota.name());
+		for (Passenger p : waiting) {
+			if (giveSeat(p, trainNumber, date, type, quota, anyQuota)) {
+				confirmed.add(p.getBooking());
+			}
+		}
+		if (rac) {
+			WaitlistCounter counter = lockCounter(trainNumber, date, racKey(type));
+			for (Passenger p : waiting) {
+				if (!Passenger.WAITLISTED.equals(p.getStatus())) {
+					continue;
+				}
+				passengerRepository.flush(); // so the RAC count below sees the passengers just moved
+				Booking b = p.getBooking();
+				if (racRoom(trainNumber, date, type, b.getFromStop(), b.getToStop()) > 0) {
+					counter.setLastNumber(counter.getLastNumber() + 1);
+					p.setStatus(Passenger.RAC);
+					p.setRacNumber(counter.getLastNumber());
+					toRac.add(b);
+				}
+			}
+		}
+		for (Booking b : confirmed) {
 			b.refreshStatus();
 			if (notify) {
 				mailer.sendAfterCommit(mailer.ticket(b, TicketMailer.Event.CONFIRMED_FROM_WAITLIST));
 			}
 		}
-		return touched;
+		for (Booking b : toRac) {
+			b.refreshStatus();
+			if (notify && !confirmed.contains(b)) {
+				mailer.sendAfterCommit(mailer.ticket(b, TicketMailer.Event.RAC_FROM_WAITLIST));
+			}
+		}
+	}
+
+	/** Gives one RAC or waitlisted passenger a free berth for their stretch, if there is one */
+	private boolean giveSeat(Passenger p, int trainNumber, LocalDate date, Seat_type type, Quota quota, boolean anyQuota) {
+		Booking b = p.getBooking();
+		JourneyPlan plan = new JourneyPlan(trainNumber, b.getTrainName(), type, date, b.getFromStop(), b.getToStop(),
+				b.getFromStation(), b.getToStation(), b.getDistanceKm(), p.getFare(), quota, anyQuota, false, null);
+		int berths = (int) b.getPassengers().stream().filter(x -> !Boolean.TRUE.equals(x.getNoBerth())
+				&& !Passenger.CANCELLED.equals(x.getStatus())).count();
+		int seeks = CompanionRules.seeks(p.getAge(), p.getGender(), Boolean.TRUE.equals(p.getNeedsAssistance()),
+				Boolean.TRUE.equals(p.getHelper()), berths);
+		Map<String, Integer> near = seeks == 0 ? Map.of() : nearFlags(plan);
+		// Never wait here: we hold the counter lock, and waiting could deadlock with a booking
+		List<CoachSeat> seats = lockFreeSeats(plan, 1, false, seeks, near);
+		if (seats.isEmpty()) {
+			return false; // nothing free for this passenger's segment; a later passenger may fit
+		}
+		Map<Integer, SeatPicker.Seat> pick = SeatPicker.assign(
+				List.of(new SeatPicker.Traveller(0, p.getAge(), p.getBerthPreference(), seeks)), toPickerSeats(seats, type, near));
+		SeatPicker.Seat picked = pick.get(0);
+		CoachSeat seat = seats.stream().filter(s -> s.getId() == picked.id()).findFirst().orElseThrow();
+		confirm(p, seat);
+		if ((seeks & picked.near() & SeatPicker.Near.WOMEN) != 0) {
+			p.setNearWomen(true);
+		}
+		occupancyRepository.saveAndFlush(occupancy(p, trainNumber, date, b.getFromStop(), b.getToStop()));
+		return true;
 	}
 
 	/**
-	 * New coaches were added for this date: give their seats to the class's waitlist,
-	 * General first, then Tatkal, lowest WL number first. Passengers who get a seat are emailed.
+	 * New coaches were added for this date: give their seats to the class's RAC and waitlist,
+	 * General first, then Tatkal. Passengers who move up are emailed.
 	 */
 	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 30)
 	public int promoteAfterNewSeats(int trainNumber, LocalDate date, Seat_type type) {
 		int confirmed = 0;
+		if (RacRules.hasRac(type)) {
+			lockCounter(trainNumber, date, racKey(type));
+		}
 		for (Quota q : List.of(Quota.GN, Quota.TQ)) {
 			lockCounter(trainNumber, date, q.counterKey(type));
 			long before = passengerRepository.countWaitlisted(trainNumber, date, type.name(), q.name());
-			promoteWaitlist(trainNumber, date, type, q, false, true);
+			promote(trainNumber, date, type, q, false, true);
 			passengerRepository.flush();
 			confirmed += (int) (before - passengerRepository.countWaitlisted(trainNumber, date, type.name(), q.name()));
 		}
@@ -343,12 +496,14 @@ public class BookingEngine {
 
 	/**
 	 * First chart for one train run:
-	 *  1. unsold seats of every quota are released and given to the waitlist (General first, then Tatkal),
-	 *  2. anyone still waiting is cancelled,
-	 *  3. every passenger is emailed their final status (after the transaction commits).
+	 *  1. unsold seats of every quota go to RAC, then the waitlist (General first, then Tatkal), and the
+	 *     waitlist moves into RAC,
+	 *  2. RAC passengers still without a berth share RAC berths in pairs,
+	 *  3. anyone still waitlisted is cancelled with a refund (Vikalp bookings wait for VikalpService),
+	 *  4. every passenger is emailed their final status (after the transaction commits).
 	 * Runs once: the chart_run row is locked and its stage checked. Returns false if already prepared.
 	 */
-	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 60)
+	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 120)
 	public boolean prepareFirstChart(int trainNumber, LocalDate date) {
 		chartRepository.ensureExists(trainNumber, date);
 		ChartRun run = chartRepository.lock(trainNumber, date);
@@ -356,46 +511,243 @@ public class BookingEngine {
 			return false;
 		}
 
-		// 1. Release quota seats to the waitlist
-		Map<String, List<Quota>> waitingByClass = new LinkedHashMap<>();
-		for (Object[] row : passengerRepository.findWaitingClasses(trainNumber, date)) {
-			waitingByClass.computeIfAbsent((String) row[0], k -> new ArrayList<>()).add(Quota.parse((String) row[1]));
-		}
-		for (Map.Entry<String, List<Quota>> e : waitingByClass.entrySet()) {
-			Seat_type type = Seat_type.valueOf(e.getKey());
-			for (Quota q : List.of(Quota.GN, Quota.TQ)) { // General waitlist first, as on Indian Railways
-				if (e.getValue().contains(q)) {
-					lockCounter(trainNumber, date, q.counterKey(type));
-					promoteWaitlist(trainNumber, date, type, q, true, false);
-				}
+		// 1 + 2
+		for (String typeName : passengerRepository.findClassesWithRacOrWaitlist(trainNumber, date)) {
+			Seat_type type = Seat_type.valueOf(typeName);
+			if (RacRules.hasRac(type)) {
+				lockCounter(trainNumber, date, racKey(type));
+			}
+			for (Quota q : List.of(Quota.GN, Quota.TQ)) { // General first, as on Indian Railways
+				lockCounter(trainNumber, date, q.counterKey(type));
+				promote(trainNumber, date, type, q, true, false);
+			}
+			if (RacRules.hasRac(type)) {
+				passengerRepository.flush();
+				placeRacOnBerths(trainNumber, date, type);
 			}
 		}
 
-		// 2. Anyone still waiting doesn't travel
-		Set<Booking> changed = new LinkedHashSet<>();
+		// 3. Anyone still waiting doesn't travel
+		Map<Booking, Double> refunds = new LinkedHashMap<>();
+		Set<Booking> vikalpLater = new LinkedHashSet<>();
 		for (Passenger p : passengerRepository.findAllWaitingForUpdate(trainNumber, date)) {
-			p.setStatus(Passenger.CANCELLED);
-			p.setCancelReason(Passenger.CANCELLED_AT_CHART);
-			changed.add(p.getBooking());
+			Booking b = p.getBooking();
+			if (vikalpPending(b)) {
+				vikalpLater.add(b);
+				continue;
+			}
+			refunds.merge(b, dropAtChart(p), Double::sum);
 		}
-		changed.forEach(b -> cancelOrphanedNoBerth(b, Passenger.CANCELLED_AT_CHART));
-		changed.forEach(Booking::refreshStatus);
+		for (Booking b : refunds.keySet()) {
+			for (Passenger p : cancelOrphanedNoBerth(b, Passenger.CANCELLED_AT_CHART)) {
+				refunds.merge(b, setRefund(p, RefundRules.droppedAtChart(p.getFare(), extras(p))), Double::sum);
+			}
+			b.refreshStatus();
+			payments.refund(b, refunds.get(b), "Not confirmed at charting");
+		}
 		passengerRepository.flush();
 		matchCompanions(trainNumber, date); // seniors confirmed from the waitlist get a helper too
 
 		run.setStage(ChartRun.FIRST);
 		run.setFirstPreparedAt(LocalDateTime.now(IST));
 
-		// 3. Everyone who still had a ticket at charting hears their final status
+		// 4. Everyone who still had a ticket at charting hears their final status (Vikalp bookings after their move)
 		for (Booking b : bookingRepository.findByTrainNumberAndJourneyDate(trainNumber, date)) {
 			boolean hadTicket = b.getPassengers().stream()
 					.anyMatch(p -> !Passenger.CANCELLED_BY_USER.equals(p.getCancelReason())
 							&& !(Passenger.CANCELLED.equals(p.getStatus()) && p.getCancelReason() == null));
-			if (hadTicket) {
+			if (hadTicket && !vikalpLater.contains(b)) {
 				mailer.sendAfterCommit(mailer.ticket(b, TicketMailer.Event.CHART_PREPARED));
 			}
 		}
 		return true;
+	}
+
+	/**
+	 * RAC passengers without a berth share RAC berths (side lowers), two per berth, for the chart. The
+	 * berth is marked taken (one occupancy row for the stretch the pair covers) so nobody else books it.
+	 */
+	private void placeRacOnBerths(int trainNumber, LocalDate date, Seat_type type) {
+		List<Passenger> racs = passengerRepository.findRacForUpdate(trainNumber, date, type.name()).stream()
+				.filter(p -> p.getSeat() == null).toList();
+		if (racs.isEmpty()) {
+			return;
+		}
+		List<CoachSeat> berths = coachSeatRepository.findRacBerthsOn(trainNumber, type.name(), date);
+		if (berths.isEmpty()) {
+			return;
+		}
+		coachSeatRepository.lockByIds(berths.stream().map(CoachSeat::getId).toList());
+		Map<Long, RacRules.Berth> model = new LinkedHashMap<>();
+		berths.forEach(b -> model.put(b.getId(), new RacRules.Berth(b.getId())));
+		for (Object[] row : occupancyRepository.findSegments(trainNumber, date)) {
+			RacRules.Berth b = model.get(((Number) row[0]).longValue());
+			if (b != null) {
+				b.blocked.add(new RacRules.Stretch(((Number) row[1]).intValue(), ((Number) row[2]).intValue()));
+			}
+		}
+		List<RacRules.Berth> list = new ArrayList<>(model.values());
+		int[] at = RacRules.place(racs.stream().map(p -> new RacRules.Stretch(p.getBooking().getFromStop(),
+				p.getBooking().getToStop())).toList(), list);
+		Set<CoachSeat> used = new LinkedHashSet<>();
+		for (int i = 0; i < racs.size(); i++) {
+			if (at[i] >= 0) {
+				CoachSeat seat = berths.get(at[i]);
+				Passenger p = racs.get(i);
+				p.setSeat(seat);
+				p.setCoachNumber(seat.getCoach().getCoachNumber());
+				p.setSeatNumber(seat.getSeatNumber());
+				p.setBerthType(seat.getBerthType());
+				used.add(seat);
+			}
+		}
+		passengerRepository.flush();
+		for (CoachSeat seat : used) {
+			reshapeRacBerth(seat, trainNumber, date, List.of());
+		}
+	}
+
+	/**
+	 * Re-marks an RAC berth as taken for the stretch its RAC passengers cover: the first of them holds
+	 * the occupancy row. Called after the chart places them, and when one of them cancels.
+	 */
+	private void reshapeRacBerth(CoachSeat seat, int trainNumber, LocalDate date, List<Long> alsoGone) {
+		List<Passenger> on = passengerRepository.findRacOnBerth(seat.getId(), date);
+		List<Long> ids = new ArrayList<>(alsoGone);
+		on.forEach(p -> ids.add(p.getId()));
+		if (!ids.isEmpty()) {
+			occupancyRepository.deleteByPassengerIds(ids);
+		}
+		if (!on.isEmpty()) {
+			int from = on.stream().mapToInt(p -> p.getBooking().getFromStop()).min().orElse(0);
+			int to = on.stream().mapToInt(p -> p.getBooking().getToStop()).max().orElse(0);
+			occupancyRepository.saveAndFlush(occupancy(on.get(0), trainNumber, date, from, to));
+		}
+	}
+
+	/** A passenger still waitlisted at the chart is dropped with a refund; returns the refund */
+	private double dropAtChart(Passenger p) {
+		p.setStatus(Passenger.CANCELLED);
+		p.setCancelReason(Passenger.CANCELLED_AT_CHART);
+		return setRefund(p, RefundRules.droppedAtChart(p.getFare(), extras(p)));
+	}
+
+	/** Fully waitlisted booking that asked for Vikalp: it gets a chance to move to another train first */
+	static boolean vikalpPending(Booking b) {
+		return Boolean.TRUE.equals(b.getVikalp()) && b.getPassengers().stream()
+				.noneMatch(p -> Passenger.CONFIRMED.equals(p.getStatus()) || Passenger.RAC.equals(p.getStatus()))
+				&& b.getPassengers().stream().anyMatch(p -> Passenger.WAITLISTED.equals(p.getStatus()));
+	}
+
+	/* ------------------------------------------------------------ Vikalp */
+
+	/**
+	 * Vikalp: moves a fully waitlisted booking to another train (alt) where every waitlisted passenger gets
+	 * a confirmed berth now. Returns the new booking, or null if alt doesn't have enough free berths.
+	 * The passengers keep the fare they paid; there is nothing extra to pay and nothing is refunded.
+	 */
+	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 30)
+	public Booking moveForVikalp(long pnr, JourneyPlan alt) {
+		Booking from = bookingRepository.findById(pnr).orElse(null);
+		if (from == null || !vikalpPending(from)) {
+			return null;
+		}
+		List<Passenger> moving = from.getPassengers().stream()
+				.filter(p -> Passenger.WAITLISTED.equals(p.getStatus()) || Passenger.NO_BERTH.equals(p.getStatus()))
+				.toList();
+		List<Passenger> needBerth = moving.stream().filter(p -> Passenger.WAITLISTED.equals(p.getStatus())).toList();
+		List<CoachSeat> seats = lockFreeSeats(alt, needBerth.size(), false);
+		if (seats.size() < needBerth.size()) {
+			return null; // changes nothing; the locks go when this transaction ends
+		}
+		List<SeatPicker.Traveller> travellers = new ArrayList<>();
+		for (int i = 0; i < needBerth.size(); i++) {
+			travellers.add(new SeatPicker.Traveller(i, needBerth.get(i).getAge(), needBerth.get(i).getBerthPreference()));
+		}
+		Map<Integer, SeatPicker.Seat> assigned = SeatPicker.assign(travellers, toPickerSeats(seats, alt.seatType(), Map.of()));
+		if (assigned.size() < needBerth.size()) {
+			return null;
+		}
+		Map<Long, CoachSeat> byId = seats.stream().collect(Collectors.toMap(CoachSeat::getId, s -> s, (a, b) -> a));
+
+		Booking to = new Booking();
+		to.setCustomer(from.getCustomer());
+		to.setTrainNumber(alt.trainNumber());
+		to.setTrainName(alt.trainName());
+		to.setFromStation(alt.fromStation());
+		to.setToStation(alt.toStation());
+		to.setFromStop(alt.fromStop());
+		to.setToStop(alt.toStop());
+		to.setJourneyDate(alt.date());
+		to.setBoardingDate(alt.boardingDate());
+		to.setSeatType(alt.seatType().name());
+		to.setQuota(Quota.GN.name());
+		to.setDistanceKm(alt.distanceKm());
+		to.setBookedAt(LocalDateTime.now(IST));
+		to.setPaymentId(from.getPaymentId());
+		to.setVikalpFrom(from.getBookingId());
+		to.setNote("Moved from PNR " + from.getBookingId() + " (train " + from.getTrainNumber() + ") under Vikalp.");
+		double total = 0;
+		int i = 0;
+		for (Passenger old : moving) {
+			Passenger p = new Passenger();
+			p.setBooking(to);
+			p.setName(old.getName());
+			p.setAge(old.getAge());
+			p.setGender(old.getGender());
+			p.setBerthPreference(old.getBerthPreference());
+			p.setNoBerth(old.getNoBerth());
+			p.setMeal(old.getMeal());
+			p.setBedroll(old.getBedroll());
+			p.setFare(old.getFare());
+			p.setExtrasFare(old.getExtrasFare());
+			p.setDivyang(old.getDivyang());
+			p.setConcessionCard(old.getConcessionCard());
+			if (Passenger.NO_BERTH.equals(old.getStatus())) {
+				p.setStatus(Passenger.NO_BERTH);
+			} else {
+				confirm(p, byId.get(assigned.get(i++).id()));
+			}
+			total += p.getFare() + (p.getExtrasFare() == null ? 0 : p.getExtrasFare());
+			to.getPassengers().add(p);
+			old.setStatus(Passenger.CANCELLED);
+			old.setCancelReason(Passenger.CANCELLED_VIKALP);
+		}
+		to.setTotalFare(total);
+		to.refreshStatus();
+		bookingRepository.save(to);
+		List<SeatOccupancy> occ = new ArrayList<>();
+		to.getPassengers().stream().filter(p -> Passenger.CONFIRMED.equals(p.getStatus()))
+				.forEach(p -> occ.add(occupancy(p, alt.trainNumber(), alt.date(), alt.fromStop(), alt.toStop())));
+		occupancyRepository.saveAllAndFlush(occ);
+		from.setNote("Moved to PNR " + to.getBookingId() + " on train " + alt.trainNumber() + " under Vikalp.");
+		from.refreshStatus();
+		bookingRepository.save(from);
+		mailer.sendAfterCommit(mailer.ticket(to, TicketMailer.Event.VIKALP_MOVED));
+		return to;
+	}
+
+	/** No other train had room: the Vikalp booking's waitlisted passengers are dropped like everyone else's */
+	@Transactional(isolation = Isolation.READ_COMMITTED, timeout = 15)
+	public void dropVikalpLeftovers(long pnr) {
+		Booking b = bookingRepository.findById(pnr).orElse(null);
+		if (b == null) {
+			return;
+		}
+		double refund = 0;
+		for (Passenger p : b.getPassengers()) {
+			if (Passenger.WAITLISTED.equals(p.getStatus())) {
+				refund += dropAtChart(p);
+			}
+		}
+		for (Passenger p : cancelOrphanedNoBerth(b, Passenger.CANCELLED_AT_CHART)) {
+			refund += setRefund(p, RefundRules.droppedAtChart(p.getFare(), extras(p)));
+		}
+		b.refreshStatus();
+		payments.refund(b, refund, "Not confirmed at charting (no other train had seats under Vikalp)");
+		bookingRepository.save(b);
+		mailer.sendAfterCommit(mailer.ticket(b, TicketMailer.Event.CHART_PREPARED,
+				"No other train had free berths for Vikalp, so the waitlisted passengers don't travel."));
 	}
 
 	/** Final chart: booking closes. Returns false if already prepared. */
@@ -542,17 +894,83 @@ public class BookingEngine {
 	}
 
 	/** A child or infant without a berth can't travel alone: cancel them when nobody with a berth is left */
-	static void cancelOrphanedNoBerth(Booking b, String reason) {
+	static List<Passenger> cancelOrphanedNoBerth(Booking b, String reason) {
+		List<Passenger> out = new ArrayList<>();
 		boolean someoneTravels = b.getPassengers().stream().anyMatch(p -> Passenger.CONFIRMED.equals(p.getStatus())
-				|| Passenger.WAITLISTED.equals(p.getStatus()));
+				|| Passenger.WAITLISTED.equals(p.getStatus()) || Passenger.RAC.equals(p.getStatus()));
 		if (!someoneTravels) {
 			for (Passenger p : b.getPassengers()) {
 				if (Passenger.NO_BERTH.equals(p.getStatus())) {
 					p.setStatus(Passenger.CANCELLED);
 					p.setCancelReason(reason);
+					out.add(p);
 				}
 			}
 		}
+		return out;
+	}
+
+	/* ------------------------------------------------------------------ RAC and refunds */
+
+	/** RAC numbers are counted per class, shared by General and Tatkal */
+	static String racKey(Seat_type type) {
+		return "RAC:" + CoachLayout.shortCode(type);
+	}
+
+	/** How many more RAC passengers fit on a stretch: two per RAC berth, minus those already on RAC there */
+	int racRoom(int trainNumber, LocalDate date, Seat_type type, int fromStop, int toStop) {
+		long berths = coachSeatRepository.countSeatsInQuotaOn(trainNumber, type.name(), Quota.RC.name(), date);
+		if (berths == 0) {
+			return 0;
+		}
+		List<RacRules.Stretch> booked = new ArrayList<>();
+		for (Object[] row : passengerRepository.findRacStretches(trainNumber, date, type.name())) {
+			booked.add(new RacRules.Stretch(((Number) row[0]).intValue(), ((Number) row[1]).intValue()));
+		}
+		return RacRules.room((int) (berths * RacRules.PER_BERTH), booked, fromStop, toStop);
+	}
+
+	private int chartStage(int trainNumber, LocalDate date) {
+		ChartRun run = chartRepository.findByTrainNumberAndJourneyDate(trainNumber, date);
+		return run == null ? ChartRun.NOT_PREPARED : run.getStage();
+	}
+
+	/** Minutes until the train leaves the passenger's boarding station (negative once it has left) */
+	private long minutesBeforeDeparture(Booking b) {
+		Train train = trainRepository.findByTrainNumber(b.getTrainNumber());
+		LocalDateTime departs;
+		if (train != null && train.getStations() != null && b.getFromStop() < train.getStations().size()) {
+			departs = Timelines.of(train).departs(b.getJourneyDate(), b.getFromStop());
+		} else {
+			departs = (b.getBoardingDate() != null ? b.getBoardingDate() : b.getJourneyDate()).atStartOfDay();
+		}
+		return java.time.Duration.between(LocalDateTime.now(IST), departs).toMinutes();
+	}
+
+	private static RefundRules.Held held(String status) {
+		if (Passenger.RAC.equals(status)) {
+			return RefundRules.Held.RAC;
+		}
+		if (Passenger.WAITLISTED.equals(status)) {
+			return RefundRules.Held.WAITLISTED;
+		}
+		return RefundRules.Held.CONFIRMED; // confirmed, or a child without a berth travelling with the group
+	}
+
+	private static double extras(Passenger p) {
+		return p.getExtrasFare() == null ? 0 : p.getExtrasFare();
+	}
+
+	private static double setRefund(Passenger p, RefundRules.Refund r) {
+		p.setRefund(r.refund());
+		p.setCancellationCharge(r.charge());
+		return r.refund();
+	}
+
+	/** "XYZ12345678" -> "••••5678"; the full card number is never stored */
+	static String maskCard(String card) {
+		String c = card == null ? "" : card.replaceAll("[^A-Za-z0-9]", "");
+		return c.isEmpty() ? null : "••••" + c.substring(Math.max(0, c.length() - 4));
 	}
 
 	/* ------------------------------------------------------------------ train runs */
@@ -578,12 +996,12 @@ public class BookingEngine {
 			}
 			double refund = 0;
 			for (Passenger p : travelling) {
-				refund += p.getFare() + (p.getExtrasFare() == null ? 0 : p.getExtrasFare());
+				refund += setRefund(p, RefundRules.trainCancelled(p.getFare(), extras(p)));
 				p.setStatus(Passenger.CANCELLED);
 				p.setCancelReason(Passenger.CANCELLED_TRAIN);
 				p.setSeat(null);
 			}
-			b.setRefundAmount((b.getRefundAmount() == null ? 0 : b.getRefundAmount()) + refund);
+			payments.refund(b, refund, "Train cancelled by the railway");
 			b.refreshStatus();
 			bookingRepository.save(b);
 			affected += travelling.size();

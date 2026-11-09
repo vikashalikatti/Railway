@@ -49,6 +49,10 @@ public class SecurityConfiguration {
 	@Value("${app.docs.public:false}")
 	private boolean docsPublic;
 
+	/** Requests per minute per client on public and log-in endpoints (RateLimitFilter); true unless set to false */
+	@Value("${app.rate-limit.enabled:true}")
+	private boolean rateLimits;
+
 	@Bean
 	BCryptPasswordEncoder bCryptPasswordEncoder() {
 		return new BCryptPasswordEncoder();
@@ -56,6 +60,10 @@ public class SecurityConfiguration {
 
 	@Bean
 	SecurityFilterChain filterChain(HttpSecurity security, JwtUtil jwtUtil) throws Exception {
+		if (rateLimits) {
+			// added first, so it runs before the token check
+			security.addFilterBefore(new RateLimitFilter(), UsernamePasswordAuthenticationFilter.class);
+		}
 		security.cors(Customizer.withDefaults())
 				.csrf(csrf -> csrf.disable())
 				.httpBasic(basic -> basic.disable())
@@ -86,6 +94,9 @@ public class SecurityConfiguration {
 							.requestMatchers(HttpMethod.GET, "/customer/chart/**").permitAll()
 							// PNR status (no names) and running status
 							.requestMatchers(HttpMethod.GET, "/customer/pnr-status/**", "/customer/running/**").permitAll()
+							// timetables, train lookup, e-ticket checks and the list of test banks
+							.requestMatchers(HttpMethod.GET, "/customer/timetable/**", "/customer/train-search",
+									"/customer/verify-ticket", "/customer/payments/banks").permitAll()
 							// everything else needs the right role
 							.requestMatchers("/admin/**").hasRole("ADMIN")
 							.requestMatchers("/customer/**").hasRole("CUSTOMER");

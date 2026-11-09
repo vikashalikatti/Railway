@@ -31,6 +31,10 @@ public class Passenger {
 	public static final String CANCELLED_BY_USER = "USER";
 	public static final String CANCELLED_AT_CHART = "CHART";
 	public static final String CANCELLED = "CAN";
+	/** Reservation Against Cancellation: shares a side-lower berth until a berth frees up */
+	public static final String RAC = "RAC";
+	/** cancelReason: moved to another train under Vikalp */
+	public static final String CANCELLED_VIKALP = "VIKALP";
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -110,6 +114,31 @@ public class Passenger {
 	/** A solo woman seated in a bay where other women are booked */
 	@Column(name = "near_women")
 	private Boolean nearWomen;
+
+	/** RAC number given at booking (RAC 3 stays 3), when the passenger got RAC */
+	@Column(name = "rac_number")
+	private Integer racNumber;
+
+	/** Refund for this passenger when cancelled, and the charge kept */
+	private Double refund;
+
+	@Column(name = "cancellation_charge")
+	private Double cancellationCharge;
+
+	/** Travels on a disability concession (Divyangjan quota) */
+	private Boolean divyang;
+
+	/** Concession card number, only its last 4 characters (e.g. "••••5678") */
+	@Column(name = "concession_card", length = 12)
+	private String concessionCard;
+
+	/** Current RAC position (filled in when a PNR is read; not stored) */
+	@Transient
+	private Integer currentRacPosition;
+
+	/** Chance of confirmation for a waitlisted passenger, e.g. "High (82%)" (filled in when read; not stored) */
+	@Transient
+	private String confirmChance;
 
 	/** Why the passenger was cancelled: USER, or CHART when still waitlisted at charting */
 	@Column(name = "cancel_reason", length = 10)

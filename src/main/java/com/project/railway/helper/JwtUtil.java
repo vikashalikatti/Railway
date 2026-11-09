@@ -106,6 +106,30 @@ public class JwtUtil {
 				.claim("ver", version).signWith(key, SignatureAlgorithm.HS512).compact();
 	}
 
+	/* ------------------------------------------------------------ e-ticket codes */
+
+	public static final String PURPOSE_TICKET = "ticket";
+
+	/** Signed code for an e-ticket's QR: proves the PNR came from this app. Valid until expiresAt. */
+	public String signTicket(long pnr, Date expiresAt) {
+		return Jwts.builder().setSubject(String.valueOf(pnr)).setIssuedAt(new Date()).setExpiration(expiresAt)
+				.claim("purpose", PURPOSE_TICKET).signWith(key, SignatureAlgorithm.HS512).compact();
+	}
+
+	/** The PNR in a valid, unexpired e-ticket code; null if the code is forged, changed or expired */
+	public Long verifyTicket(String code) {
+		Claims claims = parse(code);
+		if (claims == null || !PURPOSE_TICKET.equals(claims.get("purpose", String.class)) || claims.getExpiration() == null
+				|| claims.getExpiration().before(new Date())) {
+			return null;
+		}
+		try {
+			return Long.valueOf(claims.getSubject());
+		} catch (NumberFormatException e) {
+			return null;
+		}
+	}
+
 	/* ----------------------------------------------------------------- checking */
 
 	/** The token's details if it is valid for this purpose, otherwise null */
@@ -135,7 +159,8 @@ public class JwtUtil {
 			}
 		} else if ("customer".equals(parts[1])) {
 			Customer customer = customerRepository.findByEmail(parts[0]);
-			if (customer == null || version(customer.getTokenVersion()) != tokenVersion) {
+			if (customer == null || version(customer.getTokenVersion()) != tokenVersion
+					|| (Boolean.TRUE.equals(customer.getBlocked()) && PURPOSE_LOGIN.equals(tokenPurpose == null ? PURPOSE_LOGIN : tokenPurpose))) {
 				return null;
 			}
 		} else {
