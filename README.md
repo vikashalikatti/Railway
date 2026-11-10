@@ -135,12 +135,59 @@ Karnataka trains** (438 trains; every Karnataka station joins the station direct
 minutes; try "At most 20" first if you only want a quick look.
 
 ### 5. Run the tests
-```powershell
-.\mvnw.cmd test -Dtest="*RulesTest,TrainImportTest"
+These tests need **no database, no email and no environment variables**: you can run them right
+after unzipping. The first run needs internet (Maven downloads JUnit and the libraries once).
+
+**Way 1: PowerShell (simplest)**
+1. Check Java: `java -version` should say 17 or newer. If `mvnw.cmd` says JAVA_HOME is not set:
+   ```powershell
+   $env:JAVA_HOME = "C:\Program Files\Java\jdk-21"     # your JDK folder
+   ```
+2. Open PowerShell in the project folder (the one with `pom.xml`), e.g.
+   `cd D:\project_railway_full\Railway`.
+3. Run:
+   ```powershell
+   .\mvnw.cmd test -Dtest="*RulesTest,TrainImportTest,*CasesTest"
+   ```
+4. Wait for **BUILD SUCCESS** (or BUILD FAILURE with the failed cases listed above it).
+5. Open the records:
+   ```powershell
+   start target\test-records\test-records.html     # in the browser
+   start target\test-records\test-records.csv      # in Excel
+   ```
+
+**Way 2: Spring Tool Suite / Eclipse**
+1. Right-click the project → **Maven → Update Project** (once, so JUnit is on the classpath).
+2. In the Project Explorer open `src/test/java` → right-click the package
+   `com.project.railway.helper` → **Run As → JUnit Test**. The JUnit tab shows each test green or red.
+3. Right-click the project → **Refresh** (F5), then open `target/test-records/test-records.html`
+   (right-click → Open With → Web Browser).
+
+   Don't run the whole `src/test/java` folder this way: it includes `RailwayApplicationTests`,
+   which starts the whole app and needs MySQL and the environment variables above.
+
+**Way 3: Docker** — `docker compose build` runs the same tests while building the backend image,
+and stops the build if any case fails.
+
+**746 test cases with records.** The `*CasesTest` classes check every rule of the app case by case:
+fares, Tatkal, refunds, RAC and waitlist, quotas, seat allocation, seniors and helpers, timetables
+and day numbers, payments, rate limits, account checks and log-in lockouts, and the train importer
+(including the bundled Karnataka list). Every case is recorded with its **input values, the
+expected and the actual result, PASS / FAIL and why it failed** (with the test file and line):
+
+| File | Open with |
+|---|---|
+| `target/test-records/test-records.html` | a browser: totals, every area, "Show only failed cases" |
+| `target/test-records/test-records.csv` | Excel |
+
+All cases still run when one fails; the test then fails listing each failed case, for example:
 ```
-(`.\mvnw.cmd test` also runs `RailwayApplicationTests`, which starts the whole app and needs MySQL
-and the environment variables above.) Unit tests cover seat allocation, quotas, RAC, refunds, day numbers, travel rules, companion
-matching, the train importer (including the bundled data), payments and rate limits.
+1 of 15 cases failed in "Fare per passenger = base fare + rate x km + reservation charge":
+  #13 2S, 0 km: 37.5 rounds up to 38 [class = "2S"; km = 0; base fare = 0]: Expected 37 but got 38 (FareCasesTest.java:52)
+```
+To add a case, add a row to the table in the matching `*CasesTest` class
+(`src/test/java/com/project/railway/helper/`); the recorder is `testsupport/CaseTable.java`.
+Maven's own reports are in `target/surefire-reports/`.
 
 ---
 

@@ -98,6 +98,10 @@ public enum Quota {
 
 	/** Why these passengers can't book in this quota, or null if they can */
 	public String eligibility(List<Traveller> travellers) {
+		if (this == RC) {
+			// checked first: RC allows 0 passengers, which would otherwise give a confusing "up to 0" message
+			return "RAC berths can't be booked directly. Book in General quota: RAC is given when the class is full.";
+		}
 		if (travellers.size() > maxPassengers) {
 			return label + " allows up to " + maxPassengers + " passengers per booking.";
 		}
@@ -120,8 +124,6 @@ public enum Quota {
 			}
 			return null; // up to 2: the passenger with the card and an escort (or two card holders)
 		}
-		case RC:
-			return "RAC berths can't be booked directly. Book in General quota: RAC is given when the class is full.";
 		case SS:
 			for (Traveller t : travellers) {
 				boolean female = "FEMALE".equalsIgnoreCase(t.gender());

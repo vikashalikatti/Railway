@@ -29,7 +29,7 @@ services:
 
   backend:
     build: .
-    image: railway-backend:1.12.0
+    image: railway-backend:1.13.0
     restart: unless-stopped
     depends_on:
       mysql:

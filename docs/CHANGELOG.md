@@ -1,5 +1,23 @@
 # Changelog — Railway backend
 
+## v1.13.1 — 10 Nov 2026
+- README: step-by-step instructions for running the test cases from PowerShell, Spring Tool Suite
+  or Docker, and opening the test records. No code changes.
+
+## v1.13.0 — 10 Nov 2026
+Test cases with records. Use with frontend v1.17.0. No database changes.
+
+- **746 recorded test cases** in 13 `*CasesTest` classes: fares, Tatkal and Premium Tatkal,
+  refunds, RAC and the waitlist chance, quotas and how seats are split, seat allocation, solo
+  women / seniors / helpers, timetables and day numbers, payments, rate limits, sign-up checks,
+  profile photos, log-in lockouts, and the train importer with the Karnataka list.
+- **Test records**: every case keeps its input values, expected and actual result, PASS / FAIL and
+  why it failed (with the test file and line). Written to `target/test-records/test-records.html`
+  (filter "only failed") and `test-records.csv` (Excel). One failing case doesn't stop the others.
+- **Fix found by the tests**: booking in the RAC-berth quota said "RAC berth allows up to 0
+  passengers per booking" instead of explaining that RAC berths can't be booked directly.
+- Run with `mvnw test -Dtest="*RulesTest,TrainImportTest,*CasesTest"`; the Docker build runs them too.
+
 ## v1.12.0 — 9 Nov 2026
 Karnataka trains, Docker and Kubernetes. Use with frontend v1.17.0. No database changes.
 

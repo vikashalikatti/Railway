@@ -22,7 +22,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: backend
-          image: railway-backend:1.12.0
+          image: railway-backend:1.13.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

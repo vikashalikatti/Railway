@@ -153,11 +153,11 @@ After a minute, `kubectl top nodes` shows CPU and memory.
 
 ```powershell
 cd D:\project_railway_full\Railway
-docker compose build                 # uses .env from step 2; builds railway-backend:1.12.0 and railway-frontend:1.17.0
+docker compose build                 # uses .env from step 2; builds railway-backend:1.13.0 and railway-frontend:1.17.0
 ```
 minikube only, copy them into the cluster:
 ```powershell
-minikube image load railway-backend:1.12.0
+minikube image load railway-backend:1.13.0
 minikube image load railway-frontend:1.17.0
 ```
 
@@ -225,8 +225,8 @@ Stop it with Ctrl+C.
 
 Build a new version with a new tag, then point the Deployment at it:
 ```powershell
-docker build -t railway-backend:1.12.1 .
-kubectl -n railway set image deployment/backend backend=railway-backend:1.12.1
+docker build -t railway-backend:1.13.1 .
+kubectl -n railway set image deployment/backend backend=railway-backend:1.13.1
 kubectl -n railway rollout status deployment/backend
 ```
 Kubernetes starts a new pod, waits until its readiness check passes, and only then stops an old
